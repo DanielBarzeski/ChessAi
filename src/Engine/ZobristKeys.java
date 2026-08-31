@@ -1,4 +1,4 @@
-package Logic;
+package Engine;
 
 import java.io.*;
 import java.util.Random;

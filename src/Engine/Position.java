@@ -1,4 +1,4 @@
-package Logic;
+package Engine;
 
 import LookUpTables.Evaluation;
 import LookUpTables.*;

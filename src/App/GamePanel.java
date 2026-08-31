@@ -3,7 +3,7 @@ package App;
 
 import Data.Game;
 import File.Picture;
-import Logic.MoveGenerator;
+import Engine.MoveGenerator;
 
 import javax.swing.*;
 import java.awt.*;

@@ -3,8 +3,8 @@ package Board;
 import App.*;
 import Data.Game;
 import File.Picture;
-import Logic.MoveGenerator;
-import Logic.Position;
+import Engine.MoveGenerator;
+import Engine.Position;
 import stockfish.EngineAnalysis;
 import stockfish.StockfishService;
 

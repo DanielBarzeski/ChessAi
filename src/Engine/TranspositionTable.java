@@ -1,4 +1,4 @@
-package Logic;
+package Engine;
 
 public class TranspositionTable {
 

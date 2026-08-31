@@ -1,6 +1,6 @@
 package stockfish;
 
-import Logic.Position;
+import Engine.Position;
 
 import java.io.*;
 import java.util.ArrayList;

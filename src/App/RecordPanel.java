@@ -1,7 +1,7 @@
 package App;
 
 
-import Logic.Position;
+import Engine.Position;
 
 import javax.swing.*;
 import javax.swing.border.LineBorder;

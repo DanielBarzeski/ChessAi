@@ -1,8 +1,7 @@
 import App.GameFrame;
-import Logic.GeneratorTest;
-import Logic.OpeningBooks;
+import Engine.OpeningBooks;
 import LookUpTables.*;
-import Logic.ZobristKeys;
+import Engine.ZobristKeys;
 import stockfish.StockfishService;
 
 public class Main {

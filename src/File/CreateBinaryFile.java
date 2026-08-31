@@ -1,10 +1,10 @@
 package File;
 
-import Logic.OpeningBooks;
-import Logic.Position;
+import Engine.OpeningBooks;
+import Engine.Position;
 import LookUpTables.BishopMoves;
 import LookUpTables.RookMoves;
-import Logic.ZobristKeys;
+import Engine.ZobristKeys;
 import stockfish.StockfishService;
 
 import java.io.*;

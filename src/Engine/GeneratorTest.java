@@ -1,4 +1,4 @@
-package Logic;
+package Engine;
 
 public class GeneratorTest {
     private static final int[][] MOVES = new int[8][218];

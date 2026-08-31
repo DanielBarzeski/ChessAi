@@ -1,4 +1,4 @@
-package Logic;
+package Engine;
 
 public class BookMove {
     private final int moveBits;
