@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 
 public class StockfishService {
+    private final static int[] MOVES = new int[218];
     private static boolean osFound;
     private static Process process;
     private static BufferedReader reader;
@@ -148,8 +149,8 @@ public class StockfishService {
     private static boolean findBugRecursive(Position pos, Map<String, Object> currentTree, List<String> history, int depth) {
         if (depth == 0) return false;
 
-        int[] moves = pos.getAllClearedMoves();
-        int length = pos.getMovesLength();
+        int[] moves = pos.generateMoves(MOVES);
+        int length = pos.getLegalMovesAmount();
 
         // מיפוי מהלכי המנוע שלך מ-UCI למהלך המקודד (int)
         Map<String, Integer> localMovesMap = new HashMap<>();
@@ -193,7 +194,7 @@ public class StockfishService {
                     }
                 }
 
-                pos.undoMove(move);
+                pos.undo(move);
                 history.add("undo move: " + uci);
             }
         }

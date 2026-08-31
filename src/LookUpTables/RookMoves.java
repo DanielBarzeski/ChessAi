@@ -1,7 +1,7 @@
 package LookUpTables;
 
 
-import org.example.File.AttacksLoader;
+import File.AttacksLoader;
 
 public class RookMoves {
     private static long[][] ATTACKS;

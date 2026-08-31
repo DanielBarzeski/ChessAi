@@ -1,6 +1,5 @@
-package Ziobrist;
+package Logic;
 
-import Logic.Position;
 import java.io.*;
 import java.util.Random;
 
@@ -13,20 +12,28 @@ public class ZobristKeys {
 
     public static void load() {
         File file = new File("assets/zobrist/zobristKeys.bin");
-
         if (file.exists()) {
             try (DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(file)))) {
                 for (int i = 0; i < 960; i++) pieceKeys[i] = dis.readLong();
                 for (int i = 0; i < 16; i++) castlingKeys[i] = dis.readLong();
                 for (int i = 0; i < 8; i++) enPassantKeys[i] = dis.readLong();
                 sideToMoveKey = dis.readLong();
-
+                return;
             } catch (IOException e) {
                 System.err.println("Error reading Zobrist file, regenerating keys... " + e.getMessage());
+                return;
             }
         }
+        generateAndSave(file);
     }
+
     private static void generateAndSave(File file) {
+        if (file.getParentFile() != null) {
+            if(file.getParentFile().mkdirs()){
+                System.err.println("creating directory " + file.getParentFile().getAbsolutePath());
+            }
+        }
+
         Random random = new Random(57612L);
 
         for (int i = 0; i < 960; i++) pieceKeys[i] = random.nextLong();
@@ -44,6 +51,7 @@ public class ZobristKeys {
             System.err.println("Failed to save Zobrist keys to file: " + e.getMessage());
         }
     }
+
     public static long generateInitialKey(int[] board, boolean isBlackToMove, int castlingRights, int enPassantFile) {
         long key = 0;
         for (int square = 0; square < 64; square++) {
@@ -59,14 +67,15 @@ public class ZobristKeys {
         return key;
     }
 
-
     public static long updateMovePiece(long currentKey, int piece, int from, int to) {
         return currentKey ^ pieceKeys[piece * 64 + from] ^ pieceKeys[piece * 64 + to];
     }
-    public static long updateRemovePiece(long currentKey, int piece,  int square) {
+
+    public static long updateRemovePiece(long currentKey, int piece, int square) {
         return currentKey ^ pieceKeys[piece * 64 + square];
     }
-    public static long updatePromotionPiece(long currentKey, int oldPiece,int newPiece, int from, int to) {
+
+    public static long updatePromotionPiece(long currentKey, int oldPiece, int newPiece, int from, int to) {
         return currentKey ^ pieceKeys[oldPiece * 64 + from] ^ pieceKeys[newPiece * 64 + to];
     }
 
@@ -80,8 +89,8 @@ public class ZobristKeys {
 
     public static long updateEnPassant(long currentKey, int oldFile, int newFile) {
         long key = currentKey;
-        if (oldFile >= 0) key ^= enPassantKeys[oldFile];
-        if (newFile >= 0) key ^= enPassantKeys[newFile];
+        if (oldFile >= 0 && oldFile < 8) key ^= enPassantKeys[oldFile];
+        if (newFile >= 0 && newFile < 8) key ^= enPassantKeys[newFile];
         return key;
     }
 }
