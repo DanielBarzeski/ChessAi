@@ -1,9 +1,6 @@
 package Board;
 
-import App.BoardPanel;
-import App.Clock;
-import App.RecordPanel;
-import App.Ruler;
+import App.*;
 import Data.Game;
 import File.Picture;
 import Logic.MoveGenerator;
@@ -21,7 +18,8 @@ import java.util.concurrent.CompletableFuture;
 import static Data.Game.*;
 
 public class Factory extends MouseAdapter {
-    private static int counter;
+    private static final int[] MOVES = new int[218];
+    private static int aiMoveCounter;
     private final BoardPanel boardPanel;
     private Position position;
     private EngineAnalysis analysisResult;
@@ -36,6 +34,10 @@ public class Factory extends MouseAdapter {
     }
 
     public void clear(boolean ai) {
+        if (aiMoveCounter > 0) {
+            MoveGenerator.reset();
+        }
+        aiMoveCounter = 0;
         this.currentPiece = null;
         this.ai = ai;
         this.enemyIsWhite = isEnemyStarting();
@@ -45,7 +47,7 @@ public class Factory extends MouseAdapter {
         this.toSquare = new Point(-1, -1);
         this.bestMoveFromSquare = new Point(-1, -1);
         this.bestMoveToSquare = new Point(-1, -1);
-        this.aiIsThinking = false;
+        //  this.aiIsThinking = false;
         this.isHoldingPiece = false;
         this.promoting = false;
         analysis(true);
@@ -100,6 +102,7 @@ public class Factory extends MouseAdapter {
 
     private void handleUndoingRequest() {
         if (analysisIsInProcess) return;
+        if (aiIsThinking) return;
         if (Clock.white.isRunning() || Clock.black.isRunning()) {
             System.out.println();
             System.out.println("undoing a move is prohibited in real time game.");
@@ -108,12 +111,12 @@ public class Factory extends MouseAdapter {
             bestMoveFromSquare.move(-1, -1);
             bestMoveToSquare.move(-1, -1);
             MoveGenerator.cancel();
-            if (ai && !aiIsThinking) {
-                position.undoMove(RecordPanel.getLastMove());
+            if (ai) {
+                position.undo(RecordPanel.getLastMove());
                 RecordPanel.removeLastMove();
             }
             if (!RecordPanel.isEmpty()) {
-                position.undoMove(RecordPanel.getLastMove());
+                position.undo(RecordPanel.getLastMove());
                 RecordPanel.removeLastMove();
             }
             currentPiece = null;
@@ -148,7 +151,7 @@ public class Factory extends MouseAdapter {
         aiIsThinking = true;
         CompletableFuture.supplyAsync(() -> {
             try {
-                return MoveGenerator.findBestMove(position, 7);
+                return MoveGenerator.getBestMove(position);
             } catch (Throwable t) {
                 System.out.println("\n==================================================");
                 System.out.println("exception type: " + t.getClass().getSimpleName());
@@ -163,14 +166,14 @@ public class Factory extends MouseAdapter {
                     }
                 }
                 System.out.println("==================================================\n");
-                return position.getAllClearedMoves()[0];
+                return position.generateMoves(MOVES)[0];
             }
         }).thenAccept(aiMove -> SwingUtilities.invokeLater(() -> {
-            counter++;
-            if (MoveGenerator.isNotCancelled()) {
-                Game.setMenuActive(false);
+            aiMoveCounter++;
+            if (!MoveGenerator.isCancelled() && !Game.isFinished()) {
+                setMenuActive(false);
                 System.out.println();
-                System.out.println(counter + " Ai Calculation finished thinking & making move...\n");
+                System.out.println(aiMoveCounter + " Ai Calculation finished thinking & making move...\n");
                 System.out.println();
                 int from = aiMove & 0x3F;
                 int to = (aiMove >> 6) & 0x3F;
@@ -179,7 +182,7 @@ public class Factory extends MouseAdapter {
                 movePosition(aiMove);
             } else {
                 System.out.println();
-                System.out.println(counter + " Ai Calculation finished thinking & move was cancelled...\n");
+                System.out.println(aiMoveCounter + " Ai Calculation finished thinking & move was cancelled...\n");
                 System.out.println();
             }
         })).thenAccept(_ -> SwingUtilities.invokeLater(() -> {
@@ -321,9 +324,9 @@ public class Factory extends MouseAdapter {
 
         this.currentPiece = null;
         promoting = false;
-        int[] moves = position.getAllClearedMoves();
+        int[] moves = position.generateMoves(MOVES);
         int move = 0;
-        int length = position.getMovesLength();
+        int length = position.getLegalMovesAmount();
 
         for (int i = 0; i < length; i++) {
             move = moves[i];
@@ -352,13 +355,22 @@ public class Factory extends MouseAdapter {
 //        } else {
 //            System.out.println("failed to generate Zobrist Key");
 //        }
-        position.getAllClearedMoves();
+        position.generateMoves(MOVES);
         RecordPanel.addMove(position, move);
-        if (position.isGameOver()) {
-            Game.end();
+        if (position.isMate()) {
+            Game.end(false);
         }
-        if (position.isThreefoldRepetition()) {
-            System.out.println("Three fold repetition");
+        if (position.isDraw()) {
+            if (position.isFiftyMoveDraw()) {
+                System.out.println("Fifty move draw");
+            } else if (position.isThreefoldRepetition()) {
+                System.out.println("Three fold repetition");
+            } else if (position.hasInsufficientMaterial()) {
+                System.out.println("Insufficient material");
+            } else if (!position.isInCheck() && position.cantMove()) {
+                System.out.println("stale mate");
+            }
+            Game.end(true);
         }
     }
 
@@ -374,8 +386,8 @@ public class Factory extends MouseAdapter {
                 }
                 currentPiece = tempPiece;
                 availableMoves.clear();
-                int[] moves = position.getAllClearedMoves();
-                int length = position.getMovesLength();
+                int[] moves = position.generateMoves(MOVES);
+                int length = position.getLegalMovesAmount();
                 for (int i = 0; i < length; i++) {
                     int move = moves[i];
                     int from = move & 0x3F;
@@ -438,11 +450,17 @@ public class Factory extends MouseAdapter {
         }
 
         if (Game.isFinished()) {
-            // if (!position.isThreefoldRepetition()){
-            int kingSquare = position.getKingSquare();
-            g.setColor(new Color(128, 0, 32, 200));
-            g.fillRect(getVisualCol(kingSquare % 8) * CELL_SIZE, getVisualRow(kingSquare / 8) * CELL_SIZE, CELL_SIZE, CELL_SIZE);
-            //  }
+            if (Game.isDraw()){
+                int myKingSquare = position.getMyKingSquare();
+                int enemyKingSquare = position.getEnemyKingSquare();
+                g.setColor(Color.blue.darker());
+                g.fillRect(getVisualCol(myKingSquare % 8) * CELL_SIZE, getVisualRow(myKingSquare / 8) * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                g.fillRect(getVisualCol(enemyKingSquare % 8) * CELL_SIZE, getVisualRow(enemyKingSquare / 8) * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+            } else {
+                int kingSquare = position.getMyKingSquare();
+                g.setColor(new Color(128, 0, 32, 200));
+                g.fillRect(getVisualCol(kingSquare % 8) * CELL_SIZE, getVisualRow(kingSquare / 8) * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+            }
         }
     }
 

@@ -28,13 +28,13 @@ public class MenuPanel extends JPanel {
         CustomButton undo = new CustomButton("undo", 1);
         undo.setPreferredSize(new Dimension(width / 7, height / 2));
 
-        CustomButton save = new CustomButton("save", 1);
-        save.setPreferredSize(new Dimension(width / 7, height / 2));
+        CustomButton surrender = new CustomButton("surrender", 1);
+        surrender.setPreferredSize(new Dimension(width / 7, height / 2));
 
 
         back.addActionListener(_ -> {
             if (Game.isMenuActive()) {
-                Game.end();
+                Game.end(false);
                 Game.setIfVisible(false);
             }
         });
@@ -53,16 +53,17 @@ public class MenuPanel extends JPanel {
                 Game.setUndoing(true);
             }
         });
-        save.addActionListener(_ -> {
-//            if (Game.isMenuActive()) {
-//            }
+        surrender.addActionListener(_ -> {
+            if (Game.isMenuActive()) {
+                Game.end(false);
+            }
         });
 
         add(back);
         add(hint);
         add(restart);
         add(undo);
-        add(save);
+        add(surrender);
     }
 
 }

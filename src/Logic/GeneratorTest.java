@@ -1,6 +1,7 @@
 package Logic;
 
 public class GeneratorTest {
+    private static final int[][] MOVES = new int[8][218];
     private static boolean testFailed;
     private static long
             numPositions,
@@ -98,7 +99,7 @@ public class GeneratorTest {
                     numPositions = 0;
                     clearCounters();
                     long startTime = System.nanoTime();
-                    moveGenerationTest(position, i);
+                    moveGenerationTest(position, i, 0);
                     long endTime = System.nanoTime();
                     printTest(i, results[j][i], j);
                     System.out.println("Time taken: " + ((endTime - startTime) / 1_000_000_000.0) + " seconds");
@@ -197,8 +198,8 @@ public class GeneratorTest {
         }
     }
 
-    private static void moveGenerationTest(Position position, int depth) {
-        int[] moves = position.getAllMoves();
+    private static void moveGenerationTest(Position position, int depth,int ply) {
+        int[] moves = position.generateMoves(MOVES[ply]);
         if (depth == 0) {
             numPositions++;
             int testMove = position.getCurrentMove();
@@ -215,7 +216,7 @@ public class GeneratorTest {
 
             if (position.isMate()) {
                 checkmateCounter++;
-            } else if (position.isDoubleCheck()) {
+            } else if (position.isInDoubleCheck()) {
                 doubleCheckCounter++;
             }
             if (promotion != 0) {
@@ -229,11 +230,11 @@ public class GeneratorTest {
             }
             return;
         }
-        int length = position.getMovesLength();
+        int length = position.getLegalMovesAmount();
         for (int i = 0; i < length; i++) {
             position.move(moves[i]);
-            moveGenerationTest(position, depth - 1);
-            position.undoMove(moves[i]);
+            moveGenerationTest(position, depth - 1, ply+1);
+            position.undo(moves[i]);
         }
     }
 }

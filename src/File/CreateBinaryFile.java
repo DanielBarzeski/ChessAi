@@ -1,16 +1,18 @@
-package CreateBinaryFile;
+package File;
 
 import Logic.OpeningBooks;
 import Logic.Position;
 import LookUpTables.BishopMoves;
 import LookUpTables.RookMoves;
-import Ziobrist.ZobristKeys;
+import Logic.ZobristKeys;
 import stockfish.StockfishService;
 
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 
 public class CreateBinaryFile {
     public static void main(String[] args) {
@@ -20,76 +22,63 @@ public class CreateBinaryFile {
         StockfishService.startEngine();
 
         initiate();
-        // readBinaryFile(path);
-       // Main.main(args);
+        // readBinaryFile("assets/openings/games.bin");
         OpeningBooks.loadBook();
     }
 
-    public static void initiate(){
+    public static void initiate() {
         String path = "assets/openings/games.bin";
         emptyBinaryFile(path);
         writeToBinaryFile("message.txt", path);
     }
 
     public static void writeToBinaryFile(String textFilePath, String binaryFilePath) {
-        // יצירת תיקיית היעד במידה והיא לא קיימת
         try {
             Files.createDirectories(Paths.get("assets/openings"));
         } catch (IOException ignored) {}
 
-        // שימוש ב-BufferedReader לקריאת טקסט שורה-שורה, ו-DataOutputStream לכתיבה בינארית
-        try (BufferedReader reader = new BufferedReader(new FileReader(textFilePath));
-             DataOutputStream dos = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(binaryFilePath)))) {
+        // מבנה נתונים לאיסוף וספירת מופעים: ZobristKey -> (Move -> Weight)
+        Map<Long, Map<Integer, Integer>> bookData = new HashMap<>();
 
+        try (BufferedReader reader = new BufferedReader(new FileReader(textFilePath))) {
             Position position = new Position();
             ArrayList<Integer> movesHistory = new ArrayList<>();
             String line;
             int gameCount = 0;
 
-            // לולאה ראשית: קוראת משחק שלם בכל שורה (מתוך 7,000 השורות)
             while ((line = reader.readLine()) != null) {
                 line = line.trim();
                 if (line.isEmpty()) continue;
 
-                // אתחול הלוח וההיסטוריה מחדש עבור המשחק הנוכחי
                 movesHistory.clear();
-
-                // פיצול השורה לפי רווחים כדי לקבל את רשימת המהלכים (d4, Nf6, c4...)
                 String[] sanMoves = line.split("\\s+");
 
                 for (String sanMove : sanMoves) {
-                    // בדיקה האם הגענו לתוצאת סיום המשחק (כמו 1-0, 0-1, 1/2-1/2 או סימן חלוקה)
                     if (sanMove.equals("1-0") || sanMove.equals("0-1") || sanMove.equals("1/2-1/2") || sanMove.contains("/")) {
                         break;
                     }
 
-                    int[] legalMoves = position.getAllClearedMoves();
+                    int[] legalMoves = position.generateMoves(new int[218]);
                     int matchedMove = 0;
                     boolean foundMatch = false;
 
-                    // הלולאה שלך: סריקת המהלכים החוקיים כדי למצוא מי מהם מתאים לטקסט ה-SAN
                     for (int legalMove : legalMoves) {
                         if (matchMoveWithSAN(legalMove, sanMove)) {
                             matchedMove = legalMove;
                             foundMatch = true;
-                            break; // מצאנו התאמה, אפשר לצאת מהלולאה הפנימית
+                            break;
                         }
                     }
 
                     if (foundMatch) {
-                        // הפקת המפתח לאחר ביצוע המהלך (כפי שביקשת)
                         long zobristKey = position.getZobristKey();
 
-                        // ביצוע המהלך על הלוח ושמירתו בהיסטוריה לצורך ה-Undo בסוף
+                        // אם הצירוף (zobristKey + matchedMove) כבר קיים - המשקל יעלה ב-1, אחרת יאותחל ל-1
+                        bookData.computeIfAbsent(zobristKey, k -> new HashMap<>())
+                                .merge(matchedMove, 1, Integer::sum);
+
                         position.move(matchedMove);
                         movesHistory.add(matchedMove);
-
-
-
-                        // כתיבה מסודרת של 16 בייטים לקובץ הבינארי
-                        dos.writeLong(zobristKey);  // 8 bytes
-                        dos.writeInt(matchedMove);  // 4 bytes (המהלך האמיתי ב-32 ביטים!)
-                        dos.writeInt(1);            // 4 bytes (משקל ברירת מחדל)
                     } else {
                        // System.err.println("שגיאה: לא נמצא מהלך חוקי שמתאים לטקסט: " + sanMove + " במשחק מספר " + (gameCount + 1));
                         break; // אם מהלך אחד נכשל, אי אפשר להמשיך לסמלץ את המשחק הנוכחי
@@ -98,13 +87,26 @@ public class CreateBinaryFile {
 
                 // בסיום המשחק: החזרת הלוח למצב ההתחלתי צעד אחר צעד (Undo)
                 for (int i = movesHistory.size() - 1; i >= 0; i--) {
-                    position.undoMove(movesHistory.get(i));
+                    position.undo(movesHistory.get(i));
                 }
 
                 gameCount++;
             }
 
-         //   System.out.println("ספר הפתיחות נוצר בהצלחה! סומלצו " + gameCount + " משחקים.");
+            // כתיבת כל הנתונים המקובצים לקובץ הבינארי בסיום הקריאה
+            try (DataOutputStream dos = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(binaryFilePath)))) {
+                for (Map.Entry<Long, Map<Integer, Integer>> entry : bookData.entrySet()) {
+                    long zobristKey = entry.getKey();
+                    for (Map.Entry<Integer, Integer> moveEntry : entry.getValue().entrySet()) {
+                        int move = moveEntry.getKey();
+                        int weight = moveEntry.getValue();
+
+                        dos.writeLong(zobristKey); // 8 bytes
+                        dos.writeInt(move);        // 4 bytes
+                        dos.writeInt(weight);      // 4 bytes (המשקל המחושב)
+                    }
+                }
+            }
 
         } catch (IOException e) {
             System.err.println("שגיאה בתהליך הכתיבה: " + e.getMessage());
@@ -202,7 +204,6 @@ public class CreateBinaryFile {
     public static void emptyBinaryFile(String path) {
         try {
             Files.write(Paths.get(path), new byte[0]);
-           // System.out.println("הקובץ רוקן לחלוטין.");
         } catch (IOException e) {
             System.err.println("שגיאה בריקון הקובץ: " + e.getMessage());
         }

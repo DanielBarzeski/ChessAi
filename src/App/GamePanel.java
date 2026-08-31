@@ -98,7 +98,7 @@ public class GamePanel extends JPanel {
     }
 
     private void reset() {
-        timeCounter = 0;
+        //timeCounter = 0;
         MoveGenerator.cancel();
         RecordPanel.clear();
         Ruler.reset();
@@ -111,7 +111,7 @@ public class GamePanel extends JPanel {
 
     public void runClock() {
         new Timer(1000, e -> {
-            if (MoveGenerator.isOperating() && MoveGenerator.isNotCancelled()) {
+            if (MoveGenerator.isOperating()) {
                 timeCounter++;
                 System.out.println("    AI thinking for: " + timeCounter +" seconds.");
             }
@@ -121,18 +121,18 @@ public class GamePanel extends JPanel {
 //                System.out.println();
 //                MoveGenerator.smallAbort();
 //            }
-            if (timeCounter == 15) {
+            if (timeCounter == 60) {
                 System.out.println();
                 System.out.println("starting abortion...");
                 System.out.println();
                 MoveGenerator.abort();
             }
-            if (timeCounter == 25) {
-                System.out.println();
-                System.out.println("starting extreme abortion...");
-                System.out.println();
-                MoveGenerator.extremeAbort();
-            }
+//            if (timeCounter == 25) {
+//                System.out.println();
+//                System.out.println("starting extreme abortion...");
+//                System.out.println();
+//                MoveGenerator.extremeAbort();
+//            }
             if (Game.isVisible() && !Game.isFinished()) {
                 if (waite) {
                     waite = false;
@@ -145,7 +145,7 @@ public class GamePanel extends JPanel {
                 }
                 clockPanel.update();
                 if (Clock.white.isGameOver() || Clock.black.isGameOver()) {
-                    Game.end();
+                    Game.end(false);
                 }
             }
         }).start();

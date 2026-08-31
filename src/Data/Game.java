@@ -1,9 +1,9 @@
 package Data;
 
 public class Game {
-    public static final int CELL_SIZE = 60;
+    public static final int CELL_SIZE = 50;
 
-    private static boolean VISIBLE, FINISHED, RESTARTING, ENEMY_STARTING, AI, UNDO, HINT, MENU_ACTIVE = true;
+    private static boolean VISIBLE, FINISHED, RESTARTING, ENEMY_STARTING, AI, UNDO, HINT, MENU_ACTIVE = true, DRAW;
 
     public static void setEnemyStarting(boolean state) {
         Game.ENEMY_STARTING = state;
@@ -22,11 +22,13 @@ public class Game {
     }
 
     public static void start() {
+        DRAW = false;
         FINISHED = false;
     }
 
-    public static void end() {
+    public static void end(boolean draw) {
         FINISHED = true;
+        DRAW = draw;
     }
 
     public static void restart() {
@@ -75,5 +77,9 @@ public class Game {
 
     public static void setHint(boolean state) {
         Game.HINT = state;
+    }
+
+    public static boolean isDraw() {
+        return DRAW;
     }
 }

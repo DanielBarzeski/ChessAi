@@ -1,260 +1,265 @@
 package Logic;
 
 import App.GamePanel;
-import Ziobrist.TranspositionTable;
 
 public class MoveGenerator {
-    private static volatile boolean abort = false, cancel = false, operating;
-    private static int modifiedDepth;
+    private static TranspositionTable tt = new TranspositionTable(20);
+    private static final int[][] MOVES = new int[128][218];
 
-    // אתחול ה-TT עם 20 ביטים (כמיליון כניסות לכל Tier, סה"כ לוקח סביב ה-32MB זיכרון)
-    public static final TranspositionTable tt = new TranspositionTable(20);
+    private static volatile boolean cancel = false;
+    private static volatile boolean abort = false;
+    private static volatile boolean operating = false;
+    private static volatile int evaluationScore;
 
-    public static void cancel() {
-        cancel = true;
-        GamePanel.timeCounter = 0;
-    }
-
-    public static void smallAbort() {
-        modifiedDepth = 7;
-        abort = true;
-    }
-
-    public static void abort() {
-        modifiedDepth = 6;
-        abort = true;
-    }
-
-    public static void extremeAbort() {
-        modifiedDepth = 2;
+    public static void reset() {
+        evaluationScore = 0;
+        tt = new TranspositionTable(20);
     }
 
     public static boolean isOperating() {
         return operating;
     }
 
-    public static boolean isNotCancelled() {
-        return !cancel;
+    public static boolean isCancelled() {
+        return cancel;
     }
 
-    public static int findBestMove(Position other, int depth) {
+    public static void cancel() {
+        cancel = true;
+    }
+
+    public static void abort() {
+        abort = true;
+    }
+
+    public static int getBestMove(Position other) {
         cancel = false;
         abort = false;
         operating = true;
-
-        tt.incrementAge();
-        long currentBoardHash = other.getZobristKey();
-
         Position position = new Position(other);
-
-        // חישוב מהלכים פעם אחת בלבד מחוץ ללולאת העומק (חיסכון עצום ב-GC וחישובים)
-        int[] moves = position.getAllClearedMoves();
-        int length = position.getMovesLength();
-
+        long currentBoardHash = position.getZobristKey();
+       // BookMove bookMove = OpeningBooks.getBestMove(currentBoardHash);
+        int[] moves = position.generateMoves(MOVES[0]);
+        int length = position.getLegalMovesAmount();
+//        if (bookMove != null) {
+//            for (int i = 0; i < length; i++) {
+//                if (moves[i] == bookMove.getMove()) {
+//                    System.out.println("playing an opening book...");
+//                    operating = false;
+//                    return bookMove.getMove();
+//                }
+//            }
+//        }
+        int preEvaluationScore = evaluationScore;
         int bestMove = 0;
-
-        // [שימוש במימוש ה-TT האמיתי שלך]
-        long ttData = tt.probe(currentBoardHash);
-        if (ttData != TranspositionTable.INVALID_ENTRY) {
-            // מחלצים את המהלך הכי טוב כדי לזרוע אותו לסידור המסעים
-            bestMove = TranspositionTable.extractBestMove(ttData);
-            int storedDepth = TranspositionTable.extractDepth(ttData);
-            int storedFlag = TranspositionTable.extractFlag(ttData);
-
-            // אם מצאנו תוצאה מדויקת (EXACT) בעומק הנדרש או עמוק יותר - נחזיר את המהלך מיד
-            if (storedDepth >= depth && storedFlag == TranspositionTable.EXACT) {
-                operating = false;
-                return bestMove;
+        for (int depth = 1; depth < 12; depth++) {
+            System.out.println("depth: " + depth);
+            int currentDepthBestMove = findBestMove(position, depth, currentBoardHash, moves, length);
+            if (cancel || abort) {
+                break;
+            }
+            bestMove = currentDepthBestMove;
+            if (GamePanel.timeCounter > 0 && depth > 6) {
+                break;
             }
         }
-
-        BookMove bookMove = OpeningBooks.getBestMove(currentBoardHash);
-        if (bookMove != null && position.getPly() <= 12) {
-            operating = false;
-            System.out.println("playing an opening book...");
-            return bookMove.getMove();
-        }
-
-        // --- Iterative Deepening ---
-        for (int currentDepth = 1; currentDepth <= depth; currentDepth++) {
-            if (cancel) break;
-
-            int bestValue = -1000000;
-            int alpha = -1000000;
-            int beta = 1000000;
-
-            // סידור המסעים משתמש ב-bestMove של האיטרציה הקודמת (או זה ששלפנו מה-TT)
-            position.sortMoves(moves, length, bestMove);
-
-            int currentBestMove = 0;
-
-            for (int i = 0; i < length; i++) {
-                if (cancel) break;
-
-                int searchDepth = currentDepth - 1;
-
-                // [מנגנון ה-Soft Abort בזמן אמת]
-                // אם הטיימר החליט שנגמר הזמן, הוא מקטין מיידית את עומק החיפוש עבור שאר המהלכים
-                if (abort) {
-                    depth = modifiedDepth;
-                    searchDepth = Math.min(searchDepth, modifiedDepth - 1);
-                }
-
-                position.move(moves[i]);
-                int value = -negamax(position, searchDepth, -beta, -alpha);
-                position.undoMove(moves[i]);
-
-                if (value > bestValue) {
-                    bestValue = value;
-                    currentBestMove = moves[i];
-                }
-
-                // אלפא-בטא פרונינג בשורש (Beta Cutoff)
-                if (value >= beta) {
-                    bestValue = beta;
-                    currentBestMove = moves[i];
-                    break;
-                }
-
-                if (value > alpha) {
-                    alpha = value;
-                }
-            }
-
-            if (!cancel) {
-                bestMove = currentBestMove;
-                tt.store(currentBoardHash, currentDepth, bestValue, TranspositionTable.EXACT, bestMove);
-
-                // [בדיקת המט המדויקת שלך]
-                // אם מצאנו מט כפוי לטובתנו (ערך מעל 3000), אין טעם לחפש עמוק יותר
-                if (bestValue > 3000) {
-                    break;
-                }
-            }
-        }
-
+        System.out.println("previous evaluation score: " + preEvaluationScore);
+        System.out.println("evaluation score: " + evaluationScore);
         operating = false;
         GamePanel.timeCounter = 0;
         return bestMove;
     }
 
-    public static int negamax(Position position, int depth, int alpha, int beta) {
-        // --- תיקון: בדיקת חזרה משולשת (תיקו) ---
-        if (position.getDepthPly() > 0 && position.isThreefoldRepetition()) {
-            return 0;
-        }
+    public static int findBestMove(Position position,int depth,long currentBoardHash,int[] moves,int length) {
+        tt.incrementAge();
 
-        int originalAlpha = alpha;
-        long zobristKey = position.getZobristKey();
-        long ttData = tt.probe(zobristKey);
-        int ttMove = 0;
-
-        if (ttData != TranspositionTable.INVALID_ENTRY) {
-            int storedDepth = TranspositionTable.extractDepth(ttData);
-            int storedScore = TranspositionTable.extractScore(ttData);
-            int storedFlag = TranspositionTable.extractFlag(ttData);
-            ttMove = TranspositionTable.extractBestMove(ttData);
-
-            // --- תיקון: התאמת ניקוד מט מה-TT ל-Ply הנוכחי ---
-            if (storedScore > 3000) storedScore -= position.getDepthPly();
-            else if (storedScore < -3000) storedScore += position.getDepthPly();
-
-            if (storedDepth >= depth) {
-                if (storedFlag == TranspositionTable.EXACT) return storedScore;
-                if (storedFlag == TranspositionTable.ALPHA && storedScore <= alpha) return alpha;
-                if (storedFlag == TranspositionTable.BETA && storedScore >= beta) return beta;
-            }
-        }
-
-        int[] moves = position.getAllMoves();
-        int length = position.getMovesLength();
-
-        if (length == 0) {
-            if (position.isInCheck()) return -4000 + position.getDepthPly();
-            return 0;
-        }
-
-        if (depth == 0 || cancel) {
-            return quiescenceSearch(position, alpha, beta);
-        }
+        long ttEntry = tt.probe(currentBoardHash);
+        int ttMove = (ttEntry != TranspositionTable.INVALID_ENTRY) ? TranspositionTable.extractBestMove(ttEntry) : 0;
 
         position.sortMoves(moves, length, ttMove);
 
+        int alpha = -1000000;
+        int beta = 1000000;
         int bestScore = -1000000;
-        int bestMoveFound = 0;
+        int bestMove = 0;
 
         for (int i = 0; i < length; i++) {
-            position.move(moves[i]);
-            int value = -negamax(position, depth - 1, -beta, -alpha);
-            position.undoMove(moves[i]);
-
-            if (value > bestScore) {
-                bestScore = value;
-                bestMoveFound = moves[i];
-
-                if (value > alpha) {
-                    alpha = value;
-                    if (alpha >= beta) {
-                        break;
-                    }
-                }
+            if (abort) break;
+            int move = moves[i];
+            position.move(move);
+            int currentValue = -negamax(position, depth - 1, 1, -beta, -alpha);
+            position.undo(move);
+            if (abort) break;
+            if (currentValue > bestScore) {
+                bestMove = move;
+                bestScore = currentValue;
+            }
+            if (bestScore > alpha) {
+                alpha = bestScore;
+            }
+            if (alpha >= beta) {
+                break;
             }
         }
-
-        int flag;
-        if (bestScore <= originalAlpha) flag = TranspositionTable.ALPHA;
-        else if (bestScore >= beta) flag = TranspositionTable.BETA;
-        else flag = TranspositionTable.EXACT;
-
-        // --- תיקון: הפיכת ניקוד המט לעצמאי מ-Ply לפני השמירה ---
-        int scoreToStore = bestScore;
-        if (scoreToStore > 3000) scoreToStore += position.getDepthPly();
-        else if (scoreToStore < -3000) scoreToStore -= position.getDepthPly();
-
-        tt.store(zobristKey, depth, scoreToStore, flag, bestMoveFound);
-
-        return bestScore;
+        if (!abort) {
+            evaluationScore = bestScore;
+        }
+        return bestMove;
     }
 
-    public static int quiescenceSearch(Position position, int alpha, int beta) {
-        int standPat = position.evaluate();
-        if (standPat >= beta) return beta;
-        if (alpha < standPat) alpha = standPat;
+    private static int negamax(Position position, int depth, int ply, int alpha, int beta) {
+        if (abort || position.isSearchRepetition() || position.isFiftyMoveDraw() || position.hasInsufficientMaterial()) {
+            return 0;
+        }
+        int originalAlpha = alpha;
 
-        int[] moves = position.getAllMoves();
-        int length = position.getMovesLength();
-
-        // 3. שיפור: ננסה לקרוא מה-TT כדי לקבל רמז למהלך הכי טוב בעמדה הזו
         long zobristKey = position.getZobristKey();
-        long ttData = tt.probe(zobristKey);
-        int ttMove = 0; // ברירת מחדל: אין מהלך מועדף
-
-        if (ttData != TranspositionTable.INVALID_ENTRY) {
-            ttMove = TranspositionTable.extractBestMove(ttData);
+        long ttEntry = tt.probe(zobristKey);
+        int ttMove = 0;
+        if (ttEntry != TranspositionTable.INVALID_ENTRY) {
+            int storedDepth = TranspositionTable.extractDepth(ttEntry);
+            ttMove = TranspositionTable.extractBestMove(ttEntry);
+            if (storedDepth >= depth) {
+                int storedFlag = TranspositionTable.extractFlag(ttEntry);
+                int storedScore = TranspositionTable.extractScore(ttEntry);
+                if (storedScore > 90000) storedScore -= ply;
+                else if (storedScore < -90000) storedScore += ply;
+                if (storedFlag == TranspositionTable.EXACT) return storedScore;
+                if (storedFlag == TranspositionTable.BETA && storedScore >= beta) return storedScore;
+                if (storedFlag == TranspositionTable.ALPHA && storedScore <= alpha) return storedScore;
+            }
         }
 
-        // 4. נמיין את המהלכים כאשר ה-ttMove (אם נמצא) יקבל עדיפות עליונה
+        if (depth == 0) return quiescence(position, alpha, beta, ply);
+
+        int[] moves = position.generateMoves(MOVES[ply]);
+        int length = position.getLegalMovesAmount();
+
+        if (length == 0) {
+            if (position.isInCheck()) {
+                return -100000 + ply;
+            } else {
+               return 0;
+            }
+        }
+        // new:
+        int staticEval = position.evaluate();
+
+        // --- Futility Pruning ---
+        boolean futilityPruning = false;
+        // מרווח בטיחות: 150 נקודות (רגלי וחצי) בעומק 1, 300 נקודות בעומק 2
+        int futilityMargin = 150 * depth;
+
+        // מפעילים רק בעומקים 1-2, כשהמלך לא בשח, וכשאנחנו לא במצבי מט
+        if (depth <= 2 && !position.isInCheck() && Math.abs(alpha) < 90000) {
+            // אם ההערכה הסטטית + המרווח עדיין נמוכים מ-alpha - המצב חסר סיכוי
+            if (staticEval + futilityMargin <= alpha) {
+                futilityPruning = true;
+            }
+        }
+        //
+
         position.sortMoves(moves, length, ttMove);
 
-        // 5. לולאת חיפוש האכילות
-        for (int i = 0; i < length; i++) {
-            // *** הקסם כאן: בחיפוש שקט אנחנו מתעלמים ממהלכים רגילים! ***
-            // תצטרך לוודא שיש לך מתודה שמזהה אם מהלך הוא אכילה
-            int move = moves[i];
+        // תיקון קריטי: אם Futility Pruning פעיל, מתחילים מ-staticEval ולא מ--1000000
+        int bestScore = futilityPruning ? staticEval : -1000000;
+        int bestMove = 0;
 
-            if (((move >>> 16) & 0xF) == 0) {
+        for (int i = 0; i < length; i++) {
+            if (abort) return 0;
+            int move = moves[i];
+            // לא מדלגים על הכאות, וגם לא מדלגים על שחים (move < 0)!
+            if (futilityPruning && ((move >> 16) & 0xF) == 0 && move > 0 && ((move >> 20) & 0xF) == 0) {
                 continue;
             }
 
             position.move(move);
-            int score = -quiescenceSearch(position, -beta, -alpha);
-            position.undoMove(move);
+            int value = -negamax(position, depth - 1, ply + 1, -beta, -alpha);
+            position.undo(move);
+            if (value > bestScore) {
+                bestMove = move;
+                bestScore = value;
+            }
+            if (bestScore > alpha) {
+                alpha = bestScore;
+            }
+            if (alpha >= beta) {
+                break;
+            }
+        }
+        if (!abort) {
+            int flag;
+            if (bestScore <= originalAlpha) flag = TranspositionTable.ALPHA;
+            else if (bestScore >= beta) flag = TranspositionTable.BETA;
+            else flag = TranspositionTable.EXACT;
+            int ttScore = bestScore;
+            if (ttScore > 90000) ttScore += ply;
+            else if (ttScore < -90000) ttScore -= ply;
+            tt.store(zobristKey, depth, ttScore, flag, bestMove);
+        }
+        return bestScore;
+    }
 
-            if (score >= beta) return beta;
-            if (score > alpha) alpha = score;
+    private static int quiescence(Position position, int alpha, int beta, int ply) {
+        if (abort) return 0;
+        if (ply > 126) {
+            return position.evaluate();
+        }
+
+        boolean inCheck = position.isInCheck();
+
+        // 1. Stand-Pat
+        if (!inCheck) {
+            int standPat = position.evaluate();
+
+            if (standPat >= beta) {
+                return beta;
+            }
+            if (standPat > alpha) {
+                alpha = standPat;
+            }
+
+            // --- Delta Pruning ---
+            // אם המצב שלנו + ערך המלכה (900) עדיין נמוך מ-alpha, אין שום הכאה שתוכל להציל אותנו
+            if (standPat + 900 < alpha) {
+                return alpha;
+            }
+        }
+
+        int[] moves = position.generateMoves(MOVES[ply]);
+        int length = position.getLegalMovesAmount();
+
+        if (inCheck && length == 0) {
+            return -100000 + ply;
+        }
+
+        // --- קריטי ביותר: מיון מהלכים בתוך QS! ---
+        // ממיין את ההכאות כך שהכאת הכלים היקרים ביותר תיבדק ראשונה ותיתן Beta-Cutoff מיידי
+        position.sortMoves(moves, length, 0);
+
+        for (int i = 0; i < length; i++) {
+            if (abort) return 0;
+            int move = moves[i];
+            int captured = (move >> 16) & 0xF;
+            int promotion = (move >> 20) & 0xF;
+
+            // ממשיכים לחקור את הענף גם אם המהלך הזה נותן שח ליריב!
+            if (!inCheck && captured == 0 && promotion == 0) {
+                continue;
+            }
+
+            position.move(move);
+            int score = -quiescence(position, -beta, -alpha, ply + 1);
+            position.undo(move);
+
+            if (score >= beta) {
+                return beta; // Cutoff!
+            }
+            if (score > alpha) {
+                alpha = score;
+            }
         }
 
         return alpha;
     }
-
 }
