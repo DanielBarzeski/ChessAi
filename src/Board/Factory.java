@@ -29,11 +29,25 @@ public class Factory extends MouseAdapter {
     private Point fromSquare, toSquare, bestMoveFromSquare, bestMoveToSquare;
     private boolean aiIsThinking, pressed, isHoldingPiece, promoting, analysisIsInProcess;
 
+    private boolean isAnimating = false;
+    private boolean wasDragged = false;
+    private int animPieceValue;
+    private final Point animStartPt = new Point();
+    private final Point animTargetPt = new Point();
+    private final Point animCurrentPt = new Point();
+    private final Point animToLogicalSquare = new Point(-1, -1);
+    private long animStartTime;
+    private static final int ANIM_DURATION = 190;
+
     public Factory(BoardPanel boardPanel) {
         this.boardPanel = boardPanel;
     }
 
     public void clear(boolean ai) {
+        isAnimating = false;
+        wasDragged = false;
+        animToLogicalSquare.setLocation(-1, -1);
+
         if (aiMoveCounter > 0) {
             MoveGenerator.reset();
         }
@@ -47,7 +61,6 @@ public class Factory extends MouseAdapter {
         this.toSquare = new Point(-1, -1);
         this.bestMoveFromSquare = new Point(-1, -1);
         this.bestMoveToSquare = new Point(-1, -1);
-        //  this.aiIsThinking = false;
         this.isHoldingPiece = false;
         this.promoting = false;
         analysis(true);
@@ -66,20 +79,26 @@ public class Factory extends MouseAdapter {
             }
         }).thenRunAsync(() -> {
             if (reset) {
-                Ruler.reset();
+                RulerPanel.reset();
             } else if (analysisResult != null) {
-                Ruler.setEvaluation(analysisResult, position.isWhiteTurn());
+                RulerPanel.setEvaluation(analysisResult, position.isWhiteTurn());
             }
             analysisIsInProcess = false;
         });
+    }
 
-//        CompletableFuture.runAsync(() -> {
-//            try {
-//                 StockfishService.debugPerft(position,4);
-//            } catch (Exception e) {
-//                System.out.println(e.getMessage());
-//            }
-//        }).thenRunAsync(() -> analysisIsInProcess = false);
+    private void debugPerft() {
+        if (aiIsThinking) return;
+        if (analysisIsInProcess) return;
+        analysisIsInProcess = true;
+
+        CompletableFuture.runAsync(() -> {
+            try {
+                 StockfishService.debugPerft(position,4);
+            } catch (Exception e) {
+                System.out.println(e.getMessage());
+            }
+        }).thenRunAsync(() -> analysisIsInProcess = false);
     }
 
     public void update() {
@@ -100,13 +119,23 @@ public class Factory extends MouseAdapter {
         boardPanel.repaint();
     }
 
+    private void handleAnimation() {
+        long elapsed = System.currentTimeMillis() - animStartTime;
+        double progress = Math.min(1.0, (double) elapsed / ANIM_DURATION);
+        double ease = 1.0 - Math.pow(1.0 - progress, 3);
+        int curX = (int) (animStartPt.x + (animTargetPt.x - animStartPt.x) * ease);
+        int curY = (int) (animStartPt.y + (animTargetPt.y - animStartPt.y) * ease);
+        animCurrentPt.setLocation(curX, curY);
+        if (progress >= 1.0) {
+            isAnimating = false;
+            animToLogicalSquare.setLocation(-1, -1);
+        }
+    }
+
     private void handleUndoingRequest() {
-        if (analysisIsInProcess) return;
-        if (aiIsThinking) return;
+        if (analysisIsInProcess || aiIsThinking || isAnimating) return;
         if (Clock.white.isRunning() || Clock.black.isRunning()) {
-            System.out.println();
-            System.out.println("undoing a move is prohibited in real time game.");
-            System.out.println();
+            System.out.println("\nundoing a move is prohibited in real time game.\n");
         } else if (!RecordPanel.isEmpty()) {
             bestMoveFromSquare.move(-1, -1);
             bestMoveToSquare.move(-1, -1);
@@ -129,25 +158,17 @@ public class Factory extends MouseAdapter {
 
     private void handleHintingRequest() {
         if (Clock.white.isRunning() || Clock.black.isRunning()) {
-            System.out.println();
-            System.out.println("asking a hint is prohibited in real time game.");
-            System.out.println();
+            System.out.println("\nasking a hint is prohibited in real time game.\n");
         } else if (analysisResult != null && !aiIsThinking) {
-            int from = analysisResult.getFromSquare();
-            int to = analysisResult.getToSquare();
+            int from = analysisResult.fromSquare();
+            int to = analysisResult.toSquare();
             bestMoveFromSquare.move(from % 8, from / 8);
             bestMoveToSquare.move(to % 8, to / 8);
         }
     }
 
     public void handleAI() {
-        if (analysisIsInProcess) return;
-        if (aiIsThinking) return;
-//        try {
-//            Thread.sleep(1000);
-//        } catch (InterruptedException e) {
-//            System.out.println(e.getMessage());
-//        }
+        if (analysisIsInProcess || aiIsThinking || isAnimating) return;
         aiIsThinking = true;
         CompletableFuture.supplyAsync(() -> {
             try {
@@ -169,21 +190,19 @@ public class Factory extends MouseAdapter {
                 return position.generateMoves(MOVES)[0];
             }
         }).thenAccept(aiMove -> SwingUtilities.invokeLater(() -> {
+            Game.resetTimer();
             aiMoveCounter++;
             if (!MoveGenerator.isCancelled() && !Game.isFinished()) {
                 setMenuActive(false);
-                System.out.println();
-                System.out.println(aiMoveCounter + " Ai Calculation finished thinking & making move...\n");
-                System.out.println();
+                System.out.println("\n" + aiMoveCounter + " Ai Calculation finished thinking & making move...\n");
                 int from = aiMove & 0x3F;
                 int to = (aiMove >> 6) & 0x3F;
                 fromSquare.move(from % 8, from / 8);
                 toSquare.move(to % 8, to / 8);
+                wasDragged = false;
                 movePosition(aiMove);
             } else {
-                System.out.println();
-                System.out.println(aiMoveCounter + " Ai Calculation finished thinking & move was cancelled...\n");
-                System.out.println();
+                System.out.println("\n" + aiMoveCounter + " Ai Calculation finished thinking & move was cancelled...\n");
             }
         })).thenAccept(_ -> SwingUtilities.invokeLater(() -> {
             setMenuActive(true);
@@ -192,57 +211,49 @@ public class Factory extends MouseAdapter {
         }));
     }
 
-
     @Override
     public void mousePressed(MouseEvent e) {
-        if (Game.isFinished() || promoting || aiIsThinking) return;
+        if (Game.isFinished() || promoting || aiIsThinking || isAnimating) return;
         if (ai && (position.isWhiteTurn() == enemyIsWhite)) return;
-
         pressed = true;
+        wasDragged = false;
         int x = getCoordinateX(e.getX());
         int y = getCoordinateY(e.getY());
         int logicalCol = getLogicalCol(x / CELL_SIZE);
         int logicalRow = getLogicalRow(y / CELL_SIZE);
-
         Point clickedLogicalPoint = new Point(logicalCol, logicalRow);
-
         if (currentPiece != null && availableMoves.contains(clickedLogicalPoint)) {
             currentPiece.setCurrLocation(x, y);
+            wasDragged = false;
             processMove(logicalCol, logicalRow);
             toSquare.move(logicalCol, logicalRow);
             return;
         }
-
         initializePiece(x, y, logicalCol, logicalRow, true);
-
         if (currentPiece != null) {
             isHoldingPiece = true;
             currentPiece.setCurrLocation(x, y);
             toSquare.move(logicalCol, logicalRow);
         }
-
         boardPanel.repaint();
     }
 
     @Override
     public void mouseDragged(MouseEvent e) {
-        if (!pressed || currentPiece == null || !isHoldingPiece) return;
-
+        if (!pressed || currentPiece == null || !isHoldingPiece || isAnimating) return;
+        wasDragged = true;
         int x = getCoordinateX(e.getX());
         int y = getCoordinateY(e.getY());
-
         currentPiece.setCurrLocation(x, y);
         toSquare.move(getLogicalCol(x / CELL_SIZE), getLogicalRow(y / CELL_SIZE));
-
         boardPanel.repaint();
     }
 
     @Override
     public void mouseReleased(MouseEvent e) {
-        if (!pressed) return;
+        if (!pressed || isAnimating) return;
         pressed = false;
         isHoldingPiece = false;
-
         if (currentPiece != null) {
             int x = getCoordinateX(e.getX());
             int y = getCoordinateY(e.getY());
@@ -250,9 +261,7 @@ public class Factory extends MouseAdapter {
             int visualRow = y / CELL_SIZE;
             int logicalCol = getLogicalCol(visualCol);
             int logicalRow = getLogicalRow(visualRow);
-
             Point releasedLogicalPoint = new Point(logicalCol, logicalRow);
-
             if (availableMoves.contains(releasedLogicalPoint)) {
                 currentPiece.setCurrLocation(x, y);
                 processMove(logicalCol, logicalRow);
@@ -278,7 +287,6 @@ public class Factory extends MouseAdapter {
     private void processMove(int logicalCol, int logicalRow) {
         int logicalCurSquare = logicalRow * 8 + logicalCol;
         int logicalPrevSquare = getLogicalSquare(currentPiece.getPrevSquare());
-
         if (position.isPromotionMove(logicalPrevSquare, logicalCurSquare)) {
             promoting = true;
             availableMoves.clear();
@@ -345,18 +353,36 @@ public class Factory extends MouseAdapter {
     public void movePosition(int move) {
         bestMoveFromSquare.move(-1, -1);
         bestMoveToSquare.move(-1, -1);
+        if (!wasDragged) {
+            int from = move & 0x3F;
+            int to = (move >> 6) & 0x3F;
+            animPieceValue = position.getPieceValue(from);
+
+            animStartPt.setLocation(getVisualCol(from % 8) * CELL_SIZE, getVisualRow(from / 8) * CELL_SIZE);
+            animTargetPt.setLocation(getVisualCol(to % 8) * CELL_SIZE, getVisualRow(to / 8) * CELL_SIZE);
+            animCurrentPt.setLocation(animStartPt.x, animStartPt.y);
+            animToLogicalSquare.setLocation(to % 8, to / 8);
+
+            animStartTime = System.currentTimeMillis();
+            isAnimating = true;
+        } else {
+            wasDragged = false;
+        }
         position.move(move);
-//        long currentZobristKey = position.getZobristKey();
-//        long generatedZobristKey = position.generateInitialKey();
-//        System.out.println("Generated Zobrist Key: " + generatedZobristKey);
-//        System.out.println("Current Zobrist Key: " + currentZobristKey);
-//        if (currentZobristKey == generatedZobristKey){
-//            System.out.println("successfully generated Zobrist Key");
-//        } else {
-//            System.out.println("failed to generate Zobrist Key");
-//        }
+/*
+        long currentZobristKey = position.getZobristKey();
+        long generatedZobristKey = position.generateInitialKey();
+        System.out.println("Generated Zobrist Key: " + generatedZobristKey);
+        System.out.println("Current Zobrist Key: " + currentZobristKey);
+        if (currentZobristKey == generatedZobristKey){
+            System.out.println("successfully generated Zobrist Key");
+        } else {
+            System.out.println("failed to generate Zobrist Key");
+        }
+*/
         position.generateMoves(MOVES);
         RecordPanel.addMove(position, move);
+
         if (position.isMate()) {
             Game.end(false);
         }
@@ -453,7 +479,7 @@ public class Factory extends MouseAdapter {
             if (Game.isDraw()){
                 int myKingSquare = position.getMyKingSquare();
                 int enemyKingSquare = position.getEnemyKingSquare();
-                g.setColor(Color.blue.darker());
+                g.setColor(new Color(147, 112, 219, 180));
                 g.fillRect(getVisualCol(myKingSquare % 8) * CELL_SIZE, getVisualRow(myKingSquare / 8) * CELL_SIZE, CELL_SIZE, CELL_SIZE);
                 g.fillRect(getVisualCol(enemyKingSquare % 8) * CELL_SIZE, getVisualRow(enemyKingSquare / 8) * CELL_SIZE, CELL_SIZE, CELL_SIZE);
             } else {
@@ -467,6 +493,10 @@ public class Factory extends MouseAdapter {
     private void drawPieces(Graphics g) {
         for (int row = 0; row < 8; row++) {
             for (int col = 0; col < 8; col++) {
+                if (isAnimating && col == animToLogicalSquare.x && row == animToLogicalSquare.y) {
+                    continue;
+                }
+
                 int visualCol = getVisualCol(col);
                 int visualRow = getVisualRow(row);
 
@@ -481,6 +511,14 @@ public class Factory extends MouseAdapter {
                 }
             }
         }
+
+        if (isAnimating) {
+            g.drawImage(Picture.getImage(animPieceValue),
+                    animCurrentPt.x, animCurrentPt.y,
+                    CELL_SIZE, CELL_SIZE, null
+            );
+        }
+
         if (currentPiece != null) {
             if (isHoldingPiece) {
                 int pieceValue = currentPiece.getValue();
@@ -488,6 +526,18 @@ public class Factory extends MouseAdapter {
                         currentPiece.getCurrX() - CELL_SIZE / 2, currentPiece.getCurrY() - CELL_SIZE / 2,
                         CELL_SIZE, CELL_SIZE, null
                 );
+            }
+        }
+        if (isAnimating) {
+            handleAnimation();
+
+            g.drawImage(Picture.getImage(animPieceValue),
+                    animCurrentPt.x, animCurrentPt.y,
+                    CELL_SIZE, CELL_SIZE, null
+            );
+
+            if (isAnimating) {
+                boardPanel.repaint();
             }
         }
     }

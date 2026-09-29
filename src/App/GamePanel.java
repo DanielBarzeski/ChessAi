@@ -15,13 +15,12 @@ public class GamePanel extends JPanel {
     private final JPanel wrapperPanel;
     private final OptionPanel optionPanel;
     private final MenuPanel menuPanel;
-    private final Ruler ruler;
+    private final RulerPanel rulerPanel;
     private final NumPanel numPanel;
     private final BoardPanel boardPanel;
     private final RecordPanel recordPanel;
     private final ClockPanel clockPanel;
     private boolean waite = true;
-    public static int timeCounter = 0;
 
     public GamePanel() {
         setPreferredSize(new Dimension(35 * CELL_SIZE / 3, CELL_SIZE * 11));
@@ -40,7 +39,7 @@ public class GamePanel extends JPanel {
 
         menuPanel = new MenuPanel(35 * CELL_SIZE / 3, CELL_SIZE);
 
-        ruler = new Ruler(4 * CELL_SIZE / 6 + 15, CELL_SIZE * 9);
+        rulerPanel = new RulerPanel(4 * CELL_SIZE / 6 + 15, CELL_SIZE * 9);
 
         numPanel = new NumPanel(CELL_SIZE * 9, CELL_SIZE * 9, CELL_SIZE / 2, CELL_SIZE / 2);
         boardPanel = new BoardPanel(CELL_SIZE * 8, CELL_SIZE * 8);
@@ -51,7 +50,7 @@ public class GamePanel extends JPanel {
 
         add(wrapperPanel);
         add(menuPanel);
-        add(ruler);
+        add(rulerPanel);
         numPanel.add(boardPanel);
         add(numPanel);
         add(recordPanel);
@@ -71,14 +70,14 @@ public class GamePanel extends JPanel {
         wrapperPanel.setVisible(!visible);
         optionPanel.setVisible(!visible);
         menuPanel.setVisible(visible);
-        ruler.setVisible(visible);
+        rulerPanel.setVisible(visible);
         numPanel.setVisible(visible);
         recordPanel.setVisible(visible);
         clockPanel.setVisible(visible);
     }
 
     public void run() {
-        new Timer(400, e -> {
+        new Timer(200, _ -> {
             if (Game.isVisible()) {
                 update(true);
                 if (Game.isRestarting()) {
@@ -98,10 +97,9 @@ public class GamePanel extends JPanel {
     }
 
     private void reset() {
-        //timeCounter = 0;
         MoveGenerator.cancel();
         RecordPanel.clear();
-        Ruler.reset();
+        RulerPanel.reset();
         Clock.white.reset();
         Clock.black.reset();
         boardPanel.resetPromotions();
@@ -110,29 +108,15 @@ public class GamePanel extends JPanel {
     }
 
     public void runClock() {
-        new Timer(1000, e -> {
+        new Timer(1000, _ -> {
             if (MoveGenerator.isOperating()) {
-                timeCounter++;
-                System.out.println("    AI thinking for: " + timeCounter +" seconds.");
+                Game.updateTimer();
+                System.out.println("    AI thinking for: " + Game.getTimer() +" seconds.");
             }
-//            if (timeCounter == 5) {
-//                System.out.println();
-//                System.out.println("starting small abortion...");
-//                System.out.println();
-//                MoveGenerator.smallAbort();
-//            }
-            if (timeCounter == 60) {
-                System.out.println();
-                System.out.println("starting abortion...");
-                System.out.println();
+            if (Game.getTimer() == 60) {
+                System.out.println("\nstarting abortion...\n");
                 MoveGenerator.abort();
             }
-//            if (timeCounter == 25) {
-//                System.out.println();
-//                System.out.println("starting extreme abortion...");
-//                System.out.println();
-//                MoveGenerator.extremeAbort();
-//            }
             if (Game.isVisible() && !Game.isFinished()) {
                 if (waite) {
                     waite = false;

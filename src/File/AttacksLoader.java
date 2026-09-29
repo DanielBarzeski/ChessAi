@@ -8,7 +8,15 @@ import java.io.IOException;
 
 public class AttacksLoader {
 
-    public static long[][] loadAttacks(String fileName) {
+    public static long[][] loadBishopAttacks() {
+        return loadAttacks("assets/magicBitboards/bishopAttacks.bin");
+    }
+
+    public static long[][] loadRookAttacks() {
+        return loadAttacks("assets/magicBitboards/rookAttacks.bin");
+    }
+
+    private static long[][] loadAttacks(String fileName) {
         long[][] ATTACKS = new long[64][];
         try (DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(fileName)))) {
             for (int i = 0; i < 64; i++) {

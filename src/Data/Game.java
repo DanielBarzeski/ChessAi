@@ -3,6 +3,8 @@ package Data;
 public class Game {
     public static final int CELL_SIZE = 50;
 
+    private static int timeCounter;
+
     private static boolean VISIBLE, FINISHED, RESTARTING, ENEMY_STARTING, AI, UNDO, HINT, MENU_ACTIVE = true, DRAW;
 
     public static void setEnemyStarting(boolean state) {
@@ -81,5 +83,17 @@ public class Game {
 
     public static boolean isDraw() {
         return DRAW;
+    }
+
+    public static void resetTimer() {
+        timeCounter = 0;
+    }
+
+    public static void updateTimer() {
+        timeCounter++;
+    }
+
+    public static int getTimer() {
+        return timeCounter;
     }
 }

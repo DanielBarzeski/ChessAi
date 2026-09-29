@@ -52,7 +52,4 @@ public class BoardPanel extends JPanel {
         promotionsPanel.dispose();
     }
 
-    public Factory getBoard() {
-        return board;
-    }
 }

@@ -28,7 +28,7 @@ public class CustomButton extends JButton {
         this.type = type;
         Color border = new Color(205, 143, 33).darker();
         if (type == 1) {
-            getModel().addChangeListener(e -> {
+            getModel().addChangeListener(_ -> {
                 ButtonModel model = getModel();
                 if (model.isPressed()) {
                     setBorder(new LineBorder(border, 3));
