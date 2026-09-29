@@ -145,20 +145,17 @@ public class StockfishService {
         }
     }
 
-    // חיפוש רקורסיבי המשווה בין עץ המהלכים של המנוע שלך לעץ האמת של סטוקפיש
     private static boolean findBugRecursive(Position pos, Map<String, Object> currentTree, List<String> history, int depth) {
         if (depth == 0) return false;
 
         int[] moves = pos.generateMoves(MOVES);
         int length = pos.getLegalMovesAmount();
 
-        // מיפוי מהלכי המנוע שלך מ-UCI למהלך המקודד (int)
         Map<String, Integer> localMovesMap = new HashMap<>();
         for (int i = 0; i < length; i++) {
             localMovesMap.put(moveToUciString(moves[i]), moves[i]);
         }
 
-        // 1. זיהוי מהלך חסר (סטוקפיש מצא מהלך חוקי שהמנוע שלך לא ייצר)
         for (String sfMove : currentTree.keySet()) {
             if (!localMovesMap.containsKey(sfMove)) {
                 history.add("--- הפסק כאן! המנוע שלך פספס מהלך ---");
@@ -167,7 +164,6 @@ public class StockfishService {
             }
         }
 
-        // 2. זיהוי מהלך לא חוקי (המנוע שלך ייצר מהלך שאינו קיים בסטוקפיש)
         for (String localMove : localMovesMap.keySet()) {
             if (!currentTree.containsKey(localMove)) {
                 history.add("--- הפסק כאן! המנוע שלך ייצר מהלך לא חוקי ---");
@@ -176,7 +172,6 @@ public class StockfishService {
             }
         }
 
-        // 3. במידה ואין באג מיידי ברמה הזו, נמשיך לבדוק לעומק את המהלכים הבאים
         if (depth > 1) {
             for (Map.Entry<String, Integer> entry : localMovesMap.entrySet()) {
                 String uci = entry.getKey();
@@ -190,7 +185,7 @@ public class StockfishService {
                 if (subTree != null) {
                     boolean bugFound = findBugRecursive(pos, subTree, history, depth - 1);
                     if (bugFound) {
-                        return true; // עוצרים הכל ומבעבעים למעלה ללא קריאת undo נוספת
+                        return true;
                     }
                 }
 
@@ -202,7 +197,6 @@ public class StockfishService {
         return false;
     }
 
-    // בניית עץ המהלכים של סטוקפיש כפי שביקשת
     public static Map<String, Object> getStockfishMoveTree(String rootFen, int maxDepth) {
         if (!osFound) return new HashMap<>();
         return buildStockfishTreeRecursive(rootFen, "", 0, maxDepth);
@@ -254,7 +248,6 @@ public class StockfishService {
         return moves;
     }
 
-    // הפיכת מהלך מקודד (int) למחרוזת UCI מול קידוד ה-Bits שלך
     private static String moveToUciString(int move) {
         int from = move & 0x3F;                // 6 bits
         int to = (move >> 6) & 0x3F;           // 6 bits

@@ -6,12 +6,12 @@ import stockfish.EngineAnalysis;
 import javax.swing.*;
 import java.awt.*;
 
-public class Ruler extends JPanel {
+public class RulerPanel extends JPanel {
     private static JProgressBar progressBar;
     private static JLabel topLabel;
     private static JLabel bottomLabel;
 
-    public Ruler(int width, int height) {
+    public RulerPanel(int width, int height) {
         setPreferredSize(new Dimension(width, height));
         setBackground(new Color(78, 42, 26).darker());
         setBorder(BorderFactory.createLineBorder(new Color(210, 180, 140), 2));
@@ -42,8 +42,8 @@ public class Ruler extends JPanel {
     }
 
     public static void setEvaluation(EngineAnalysis engineAnalysis, boolean whiteTurn) {
-        int cp = engineAnalysis.getCentipawns();
-        int mateIn = engineAnalysis.getMateIn();
+        int cp = engineAnalysis.centipawns();
+        int mateIn = engineAnalysis.mateIn();
         boolean isMate = engineAnalysis.isMate();
         boolean isCheckmate = engineAnalysis.isCheckmate();
         boolean isStalemate = engineAnalysis.isStalemate();
@@ -57,7 +57,7 @@ public class Ruler extends JPanel {
         if (isCheckmate || isMate) {
             if (isCheckmate) {
                 whiteAdvantage = !whiteTurn;
-                labelText = "M0";
+                labelText = whiteAdvantage ? "1-0" : "0-1";
             } else {
                 whiteAdvantage = mateIn > 0;
                 labelText = "M" + Math.abs(mateIn);
@@ -70,13 +70,15 @@ public class Ruler extends JPanel {
             labelText = "0.00";
         }
         else {
-            double winChance = 1.0 / (1.0 + Math.exp(-0.00368208 * cp));
-            int rawPercentage = (int) Math.round(winChance * 1000);
-            percentage = Math.clamp(rawPercentage, 10, 990);
             double pawns = cp / 100.0;
-            pawns = Math.clamp(pawns, -50.0, 50.0);
             whiteAdvantage = cp >= 0;
-            labelText = (cp >= 0) ? String.format("+%.2f", pawns) : String.format("%.2f", pawns);
+
+            double fillPercentage = 0.5 + (Math.atan(cp / 400.0) / Math.PI);
+
+            int rawPercentage = (int) Math.round(fillPercentage * 1000);
+            percentage = Math.clamp(rawPercentage, 20, 980);
+
+            labelText = String.format("%.2f", pawns);
         }
         boolean showAtBottom = Game.isEnemyStarting() != whiteAdvantage;
 

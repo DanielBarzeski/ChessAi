@@ -7,7 +7,7 @@ public class RookMoves {
     private static long[][] ATTACKS;
 
     public static void initiate() {
-        ATTACKS = AttacksLoader.loadAttacks("assets/magicBitboards/rookAttacks.bin");
+        ATTACKS = AttacksLoader.loadRookAttacks();
     }
 
     public static long getPossibleMoves(int square, long occupancy) {
@@ -18,17 +18,17 @@ public class RookMoves {
     }
 
     private static final long[] BLOCKERS = {
-            // Rank bishopAttacksOutput.txt (a1-h1)
+            // Rank 1 (a1-h1)
             0x000101010101017EL, // a1 (0)
-            0x000202020202027CL, // b1 (bishopAttacksOutput.txt)
-            0x000404040404047AL, // c1 (2.txt)
+            0x000202020202027CL, // b1 (1)
+            0x000404040404047AL, // c1 (2)
             0x0008080808080876L, // d1 (3)
             0x001010101010106EL, // e1 (4)
             0x002020202020205EL, // f1 (5)
             0x004040404040403EL, // g1 (6)
             0x008080808080807EL, // h1 (7)
 
-            // Rank 2.txt (a2-h2)
+            // Rank 2 (a2-h2)
             0x0001010101017E00L, // a2 (8)
             0x0002020202027C00L, // b2 (9)
             0x0004040404047A00L, // c2 (10)
@@ -100,17 +100,17 @@ public class RookMoves {
     };
 
     private static final long[] MAGIC_NUMBERS = {
-            // Rank bishopAttacksOutput.txt (a1-h1)
+            // Rank 1 (a1-h1)
             0x8080041061804000L, // a1 (0)
-            0x8200102082450200L, // b1 (bishopAttacksOutput.txt)
-            0x1080100008200081L, // c1 (2.txt)
+            0x8200102082450200L, // b1 (1)
+            0x1080100008200081L, // c1 (2)
             0x4080048208001000L, // d1 (3)
             0x8A80040003080080L, // e1 (4)
             0x4100020804000100L, // f1 (5)
             0x2080008002000100L, // g1 (6)
             0x0200014C00248201L, // h1 (7)
 
-            // Rank 2.txt (a2-h2)
+            // Rank 2 (a2-h2)
             0x0048800080400020L, // a2 (8)
             0x0400400050002000L, // b2 (9)
             0x0000808020001000L, // c2 (10)
@@ -181,9 +181,9 @@ public class RookMoves {
             0x0602002100940042L  // h8 (63)
     };
     private static final int[] SHIFTS = {
-            // Rank bishopAttacksOutput.txt
+            // Rank 1
             52, 53, 53, 53, 53, 53, 53, 52,  // a1-h1
-            // Rank 2.txt
+            // Rank 2
             53, 54, 54, 54, 54, 54, 54, 53,  // a2-h2
             // Rank 3
             53, 54, 54, 54, 54, 54, 54, 53,  // a3-h3

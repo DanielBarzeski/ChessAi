@@ -24,19 +24,17 @@ public class SquaresBetween {
         int dr = Integer.signum(r2 - r1);
         int df = Integer.signum(f2 - f1);
 
-        // בדיקה אם הם על אותו קו (ישר או אלכסוני)
         if (dr != 0 && df != 0 && Math.abs(r2 - r1) != Math.abs(f2 - f1)) return 0L;
 
         long line = 0L;
 
-        // רץ לכל אורך הקו (מהמקור עד הקצה בשני הכיוונים)
         int r = r1, f = f1;
         while (r >= 0 && r < 8 && f >= 0 && f < 8) {
             line |= (1L << (r * 8 + f));
             r += dr; f += df;
         }
 
-        r = r1 - dr; f = f1 - df; // חזרה אחורה מהמקור
+        r = r1 - dr; f = f1 - df;
         while (r >= 0 && r < 8 && f >= 0 && f < 8) {
             line |= (1L << (r * 8 + f));
             r -= dr; f -= df;
@@ -71,9 +69,8 @@ public class SquaresBetween {
         int rankDiff = to / 8 - from / 8;
         int fileDiff = to % 8 - from % 8;
 
-        // בדוק אם הם על אותו קו
         if (rankDiff != 0 && fileDiff != 0 && Math.abs(rankDiff) != Math.abs(fileDiff)) {
-            return 0L; // לא על אותו קו
+            return 0L;
         }
         if (rankDiff == 0 && fileDiff == 0) {
             return 0L;

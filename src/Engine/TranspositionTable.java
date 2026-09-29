@@ -3,8 +3,8 @@ package Engine;
 public class TranspositionTable {
 
     public static final int EXACT = 0;
-    public static final int ALPHA = 1;
-    public static final int BETA = 2;
+    public static final int UPPER_BOUND = 1;
+    public static final int LOWER_BOUND = 2;
 
     public static final long INVALID_ENTRY = 0L;
     private static final int SCORE_OFFSET = 32000;
