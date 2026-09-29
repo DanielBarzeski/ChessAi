@@ -77,7 +77,7 @@ public class GamePanel extends JPanel {
     }
 
     public void run() {
-        new Timer(200, _ -> {
+        new Timer(100, _ -> {
             if (Game.isVisible()) {
                 update(true);
                 if (Game.isRestarting()) {
