@@ -21,20 +21,12 @@ public class Piece {
         return col == getPrevCol() && row == getPrevRow();
     }
 
-    public boolean inCurrCell(int col, int row) {
-        return col == getCurrCol() && row == getCurrRow();
-    }
-
     public int getCurrSquare() {
         return getCurrRow() * 8 + getCurrCol();
     }
 
     public int getPrevSquare() {
         return getPrevRow() * 8 + getPrevCol();
-    }
-
-    public boolean isMoved() {
-        return getCurrCol() != getPrevCol() || getCurrRow() != getPrevRow();
     }
 
     public int getCurrX() {

@@ -2,17 +2,17 @@ package LookUpTables;
 
 public class KingMoves {
     public static final long[] ATTACKS = {
-            // Rank bishopAttacksOutput.txt (a1-h1)
+            // Rank 1 (a1-h1)
             0x0000000000000302L, // a1 (0)
-            0x0000000000000705L, // b1 (bishopAttacksOutput.txt)
-            0x0000000000000E0AL, // c1 (2.txt)
+            0x0000000000000705L, // b1 (1)
+            0x0000000000000E0AL, // c1 (2)
             0x0000000000001C14L, // d1 (3)
             0x0000000000003828L, // e1 (4)
             0x0000000000007050L, // f1 (5)
             0x000000000000E0A0L, // g1 (6)
             0x000000000000C040L, // h1 (7)
 
-            // Rank 2.txt (a2-h2)
+            // Rank 2 (a2-h2)
             0x0000000000030203L, // a2 (8)
             0x0000000000070507L, // b2 (9)
             0x00000000000E0A0EL, // c2 (10)

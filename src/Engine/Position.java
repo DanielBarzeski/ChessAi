@@ -146,8 +146,316 @@ public class Position {
         return (RookMoves.getPossibleMoves(myKingSquare, tempOccupancy) & (pieces[BR ^ whiteTurn] | pieces[BQ ^ whiteTurn])) == 0L &&
                 (BishopMoves.getPossibleMoves(myKingSquare, tempOccupancy) & (pieces[BB ^ whiteTurn] | pieces[BQ ^ whiteTurn])) == 0L;
     }
+    private void prepareMoveGeneration() {
+        legalMovesAmount = 0;
+        myPieces = pieces[WP | whiteTurn] | pieces[WN | whiteTurn] | pieces[WB | whiteTurn] |
+                pieces[WR | whiteTurn] | pieces[WQ | whiteTurn] | pieces[WK | whiteTurn];
+        enemyPieces = pieces[BP ^ whiteTurn] | pieces[BN ^ whiteTurn] | pieces[BB ^ whiteTurn] |
+                pieces[BR ^ whiteTurn] | pieces[BQ ^ whiteTurn] | pieces[BK ^ whiteTurn];
+        occupancy = myPieces | enemyPieces;
+        myKingSquare = Long.numberOfTrailingZeros(pieces[WK | whiteTurn]);
+        enemyKingSquare = Long.numberOfTrailingZeros(pieces[BK ^ whiteTurn]);
+
+        myKingAttackers = PawnMoves.ATTACKS[whiteTurn >> 3][myKingSquare] & pieces[BP ^ whiteTurn]
+                | KnightMoves.ATTACKS[myKingSquare] & pieces[BN ^ whiteTurn]
+                | BishopMoves.getPossibleMoves(myKingSquare, occupancy) & (pieces[BB ^ whiteTurn] | pieces[BQ ^ whiteTurn])
+                | RookMoves.getPossibleMoves(myKingSquare, occupancy) & (pieces[BR ^ whiteTurn] | pieces[BQ ^ whiteTurn]);
+    }
+
+    public int generateTacticalMoves(int[] moves) {
+        prepareMoveGeneration();
+        long doubleCheck = myKingAttackers & (myKingAttackers - 1);
+        long notDoubleCheckMask = ~((doubleCheck | -doubleCheck) >> 63);
+        long checked = calculateCheckMask(myKingAttackers);
+        long pinned = calculatePinnedPieces();
+        long pawnCheckMask = PawnMoves.ATTACKS[(whiteTurn ^ 8) >> 3][enemyKingSquare];
+        long knightCheckMask = KnightMoves.ATTACKS[enemyKingSquare];
+        long bishopCheckMask = BishopMoves.getPossibleMoves(enemyKingSquare, occupancy);
+        long rookCheckMask = RookMoves.getPossibleMoves(enemyKingSquare, occupancy);
+        long queenCheckMask = bishopCheckMask | rookCheckMask;
+
+        long pawns = pieces[WP | whiteTurn] & notDoubleCheckMask;
+        int shiftedRank = (whiteTurn == 0) ? 8 : -8;
+        long enemyEpPawnSquare = 1L << (currentEpSquare + shiftedRank);
+        long enemyPawns = pieces[BP ^ whiteTurn];
+
+        while (pawns != 0) {
+            int fromSquare = Long.numberOfTrailingZeros(pawns);
+            long legalMoves = 0L;
+
+            boolean isPromotingRank = (whiteTurn == 0) ? (fromSquare <= 15) : (fromSquare >= 48);
+            if (isPromotingRank) {
+                legalMoves = PawnMoves.PUSHES[whiteTurn >> 3][fromSquare] & ~occupancy;
+            }
+
+            long attackMask = PawnMoves.ATTACKS[whiteTurn >> 3][fromSquare];
+            legalMoves |= attackMask & enemyPieces;
+
+            long pawnChecked = checked;
+            long fromBB = 1L << fromSquare;
+            long leftNeighbor = (fromBB >>> 1) & 0x7F7F7F7F7F7F7F7FL;
+            long rightNeighbor = (fromBB << 1) & 0xFEFEFEFEFEFEFEFEL;
+            long adjacentMask = leftNeighbor | rightNeighbor;
+
+            if (currentEpSquare != 0 && (attackMask & 1L << currentEpSquare) != 0L && isEnPassantLegal(fromSquare, currentEpSquare)) {
+                if ((enemyEpPawnSquare & enemyPawns & adjacentMask) != 0L && (myKingAttackers == 0L || (myKingAttackers & enemyEpPawnSquare) != 0L)) {
+                    legalMoves |= 1L << currentEpSquare;
+                    pawnChecked |= 1L << currentEpSquare;
+                }
+            }
+
+            legalMoves &= pawnChecked;
+            if ((1L << fromSquare & pinned) != 0L) {
+                legalMoves &= SquaresBetween.LINES[myKingSquare][fromSquare] & pinned;
+            }
+
+            int movingPiece = WP | whiteTurn;
+            while (legalMoves != 0) {
+                int toSquare = Long.numberOfTrailingZeros(legalMoves);
+                int capturedPiece = board[toSquare];
+                boolean isPromoting = toSquare < 8 || toSquare > 55;
+
+                if (isPromoting) {
+                    moves[legalMovesAmount++] = encodeMove(fromSquare, toSquare, movingPiece, capturedPiece, WQ | whiteTurn, 0, castlingRights, 0, (int) ((queenCheckMask >>> toSquare) & 1));
+                    moves[legalMovesAmount++] = encodeMove(fromSquare, toSquare, movingPiece, capturedPiece, WR | whiteTurn, 0, castlingRights, 0, (int) ((rookCheckMask >>> toSquare) & 1));
+                    moves[legalMovesAmount++] = encodeMove(fromSquare, toSquare, movingPiece, capturedPiece, WB | whiteTurn, 0, castlingRights, 0, (int) ((bishopCheckMask >>> toSquare) & 1));
+                    moves[legalMovesAmount++] = encodeMove(fromSquare, toSquare, movingPiece, capturedPiece, WN | whiteTurn, 0, castlingRights, 0, (int) ((knightCheckMask >>> toSquare) & 1));
+                } else if ((enemyEpPawnSquare & enemyPawns & adjacentMask) != 0L && currentEpSquare != 0 && currentEpSquare == toSquare) {
+                    moves[legalMovesAmount++] = encodeMove(fromSquare, toSquare, movingPiece, BP ^ whiteTurn, 0, 0, castlingRights, 1, (int) ((pawnCheckMask >>> toSquare) & 1));
+                } else {
+                    moves[legalMovesAmount++] = encodeMove(fromSquare, toSquare, movingPiece, capturedPiece, 0, 0, castlingRights, 0, (int) ((pawnCheckMask >>> toSquare) & 1));
+                }
+                legalMoves &= legalMoves - 1;
+            }
+            pawns &= pawns - 1;
+        }
+
+        long knights = pieces[WN | whiteTurn] & notDoubleCheckMask;
+        while (knights != 0) {
+            int fromSquare = Long.numberOfTrailingZeros(knights);
+            long legalMoves = KnightMoves.ATTACKS[fromSquare] & enemyPieces;
+            knights = getLegalMoves(moves, checked, pinned, knights, fromSquare, legalMoves, WN, knightCheckMask);
+        }
+
+        long bishops = pieces[WB | whiteTurn] & notDoubleCheckMask;
+        while (bishops != 0) {
+            int fromSquare = Long.numberOfTrailingZeros(bishops);
+            long legalMoves = BishopMoves.getPossibleMoves(fromSquare, occupancy) & enemyPieces;
+            bishops = getLegalMoves(moves, checked, pinned, bishops, fromSquare, legalMoves, WB, bishopCheckMask);
+        }
+
+        long queens = pieces[WQ | whiteTurn] & notDoubleCheckMask;
+        while (queens != 0) {
+            int fromSquare = Long.numberOfTrailingZeros(queens);
+            long legalMoves = QueenMoves.getPossibleMoves(fromSquare, occupancy) & enemyPieces;
+            queens = getLegalMoves(moves, checked, pinned, queens, fromSquare, legalMoves, WQ, queenCheckMask);
+        }
+
+        long kingLegalMoves = KingMoves.ATTACKS[myKingSquare] & enemyPieces;
+        long occupancyWithoutKing = occupancy & ~(1L << myKingSquare);
+        while (kingLegalMoves != 0) {
+            int toSquare = Long.numberOfTrailingZeros(kingLegalMoves);
+            if (isSquareAttacked(toSquare, occupancyWithoutKing)) {
+                kingLegalMoves &= kingLegalMoves - 1;
+                continue;
+            }
+            int capturedPiece = board[toSquare];
+            moves[legalMovesAmount++] = encodeMove(myKingSquare, toSquare, WK | whiteTurn, capturedPiece, 0, 0, castlingRights, 0, 0);
+            kingLegalMoves &= kingLegalMoves - 1;
+        }
+
+        long rooks = pieces[WR | whiteTurn] & notDoubleCheckMask;
+        while (rooks != 0) {
+            int fromSquare = Long.numberOfTrailingZeros(rooks);
+            long legalMoves = RookMoves.getPossibleMoves(fromSquare, occupancy) & enemyPieces;
+            rooks = getLegalMoves(moves, checked, pinned, rooks, fromSquare, legalMoves, WR, rookCheckMask);
+        }
+
+        return legalMovesAmount;
+    }
+    public int generateQuietChecks(int[] moves, int count) {
+        prepareMoveGeneration();
+        legalMovesAmount = count;
+        long doubleCheck = myKingAttackers & (myKingAttackers - 1);
+        long notDoubleCheckMask = ~((doubleCheck | -doubleCheck) >> 63);
+        long checked = calculateCheckMask(myKingAttackers);
+        long pinned = calculatePinnedPieces();
+
+        long pawnCheckMask = PawnMoves.ATTACKS[(whiteTurn ^ 8) >> 3][enemyKingSquare];
+        long knightCheckMask = KnightMoves.ATTACKS[enemyKingSquare];
+        long bishopCheckMask = BishopMoves.getPossibleMoves(enemyKingSquare, occupancy);
+        long rookCheckMask = RookMoves.getPossibleMoves(enemyKingSquare, occupancy);
+        long queenCheckMask = bishopCheckMask | rookCheckMask;
+
+        long pawns = pieces[WP | whiteTurn] & notDoubleCheckMask;
+        while (pawns != 0) {
+            int fromSquare = Long.numberOfTrailingZeros(pawns);
+            long legalMoves = 0L;
+            boolean isPromotingRank = (whiteTurn == 0) ? (fromSquare <= 15) : (fromSquare >= 48);
+            if (!isPromotingRank) {
+                legalMoves = PawnMoves.PUSHES[whiteTurn >> 3][fromSquare] & ~occupancy;
+                if (legalMoves != 0L) {
+                    legalMoves |= PawnMoves.DOUBLE_PUSHES[whiteTurn >> 3][fromSquare] & ~occupancy;
+                }
+            }
+            legalMoves &= checked;
+
+            legalMoves &= pawnCheckMask;
+
+            if ((1L << fromSquare & pinned) != 0L) {
+                legalMoves &= SquaresBetween.LINES[myKingSquare][fromSquare] & pinned;
+            }
+            int movingPiece = WP | whiteTurn;
+            while (legalMoves != 0) {
+                int toSquare = Long.numberOfTrailingZeros(legalMoves);
+                moves[legalMovesAmount++] = encodeMove(fromSquare, toSquare, movingPiece, 0, 0, 0, castlingRights, 0, 1); // 1 = Check
+                legalMoves &= legalMoves - 1;
+            }
+            pawns &= pawns - 1;
+        }
+
+        long knights = pieces[WN | whiteTurn] & notDoubleCheckMask;
+        while (knights != 0) {
+            int fromSquare = Long.numberOfTrailingZeros(knights);
+            long legalMoves = KnightMoves.ATTACKS[fromSquare] & ~occupancy;
+            legalMoves &= knightCheckMask;
+            knights = getLegalMoves(moves, checked, pinned, knights, fromSquare, legalMoves, WN, knightCheckMask);
+        }
+
+        long bishops = pieces[WB | whiteTurn] & notDoubleCheckMask;
+        while (bishops != 0) {
+            int fromSquare = Long.numberOfTrailingZeros(bishops);
+            long legalMoves = BishopMoves.getPossibleMoves(fromSquare, occupancy) & ~occupancy;
+            legalMoves &= bishopCheckMask;
+            bishops = getLegalMoves(moves, checked, pinned, bishops, fromSquare, legalMoves, WB, bishopCheckMask);
+        }
+
+        long queens = pieces[WQ | whiteTurn] & notDoubleCheckMask;
+        while (queens != 0) {
+            int fromSquare = Long.numberOfTrailingZeros(queens);
+            long legalMoves = QueenMoves.getPossibleMoves(fromSquare, occupancy) & ~occupancy;
+            legalMoves &= queenCheckMask;
+            queens = getLegalMoves(moves, checked, pinned, queens, fromSquare, legalMoves, WQ, queenCheckMask);
+        }
+
+        long rooks = pieces[WR | whiteTurn] & notDoubleCheckMask;
+        while (rooks != 0) {
+            int fromSquare = Long.numberOfTrailingZeros(rooks);
+            long legalMoves = RookMoves.getPossibleMoves(fromSquare, occupancy) & ~occupancy;
+            legalMoves &= rookCheckMask;
+            rooks = getLegalMoves(moves, checked, pinned, rooks, fromSquare, legalMoves, WR, rookCheckMask);
+        }
+        return legalMovesAmount;
+    }
+    public int generateQuietMoves(int[] moves, int count) {
+        prepareMoveGeneration();
+        legalMovesAmount = count;
+        long doubleCheck = myKingAttackers & (myKingAttackers - 1);
+        long notDoubleCheckMask = ~((doubleCheck | -doubleCheck) >> 63);
+        long checked = calculateCheckMask(myKingAttackers);
+        long pinned = calculatePinnedPieces();
+
+        long pawnCheckMask = PawnMoves.ATTACKS[(whiteTurn ^ 8) >> 3][enemyKingSquare];
+        long knightCheckMask = KnightMoves.ATTACKS[enemyKingSquare];
+        long bishopCheckMask = BishopMoves.getPossibleMoves(enemyKingSquare, occupancy);
+        long rookCheckMask = RookMoves.getPossibleMoves(enemyKingSquare, occupancy);
+        long queenCheckMask = bishopCheckMask | rookCheckMask;
+
+        long pawns = pieces[WP | whiteTurn] & notDoubleCheckMask;
+        while (pawns != 0) {
+            int fromSquare = Long.numberOfTrailingZeros(pawns);
+            long legalMoves = 0L;
+            boolean isPromotingRank = (whiteTurn == 0) ? (fromSquare <= 15) : (fromSquare >= 48);
+            if (!isPromotingRank) {
+                legalMoves = PawnMoves.PUSHES[whiteTurn >> 3][fromSquare] & ~occupancy;
+                if (legalMoves != 0L) {
+                    legalMoves |= PawnMoves.DOUBLE_PUSHES[whiteTurn >> 3][fromSquare] & ~occupancy;
+                }
+            }
+            legalMoves &= checked;
+
+            legalMoves &= ~pawnCheckMask;
+
+            if ((1L << fromSquare & pinned) != 0L) {
+                legalMoves &= SquaresBetween.LINES[myKingSquare][fromSquare] & pinned;
+            }
+            int movingPiece = WP | whiteTurn;
+            while (legalMoves != 0) {
+                int toSquare = Long.numberOfTrailingZeros(legalMoves);
+                moves[legalMovesAmount++] = encodeMove(fromSquare, toSquare, movingPiece, 0, 0, 0, castlingRights, 0, 0); // 0 = No Check
+                legalMoves &= legalMoves - 1;
+            }
+            pawns &= pawns - 1;
+        }
+
+        long knights = pieces[WN | whiteTurn] & notDoubleCheckMask;
+        while (knights != 0) {
+            int fromSquare = Long.numberOfTrailingZeros(knights);
+            long legalMoves = KnightMoves.ATTACKS[fromSquare] & ~occupancy;
+            legalMoves &= ~knightCheckMask;
+            knights = getLegalMoves(moves, checked, pinned, knights, fromSquare, legalMoves, WN, knightCheckMask);
+        }
+
+        long bishops = pieces[WB | whiteTurn] & notDoubleCheckMask;
+        while (bishops != 0) {
+            int fromSquare = Long.numberOfTrailingZeros(bishops);
+            long legalMoves = BishopMoves.getPossibleMoves(fromSquare, occupancy) & ~occupancy;
+            legalMoves &= ~bishopCheckMask;
+            bishops = getLegalMoves(moves, checked, pinned, bishops, fromSquare, legalMoves, WB, bishopCheckMask);
+        }
+
+        long queens = pieces[WQ | whiteTurn] & notDoubleCheckMask;
+        while (queens != 0) {
+            int fromSquare = Long.numberOfTrailingZeros(queens);
+            long legalMoves = QueenMoves.getPossibleMoves(fromSquare, occupancy) & ~occupancy;
+            legalMoves &= ~queenCheckMask;
+            queens = getLegalMoves(moves, checked, pinned, queens, fromSquare, legalMoves, WQ, queenCheckMask);
+        }
+
+        long kingLegalMoves = KingMoves.ATTACKS[myKingSquare] & ~occupancy;
+        int currentCastling = (castlingRights >> ((whiteTurn >> 3) << 1)) & 3;
+        if (currentCastling != 0 && myKingAttackers == 0L) {
+            int rowOffset = myKingSquare & 0x38;
+            int isKingAtE = myKingSquare & 4;
+            if ((currentCastling & 1) != 0 && ((occupancy & ((0x70L - (isKingAtE << 2)) << rowOffset)) == 0L) &&
+                    (!isSquareAttacked(myKingSquare + 1, occupancy) && !isSquareAttacked(myKingSquare + 2, occupancy))) {
+                kingLegalMoves |= 1L << (myKingSquare + 2);
+            }
+            if ((currentCastling & 2) != 0 && ((occupancy & ((0x06L + (isKingAtE << 1)) << rowOffset)) == 0L) &&
+                    (!isSquareAttacked(myKingSquare - 1, occupancy) && !isSquareAttacked(myKingSquare - 2, occupancy))) {
+                kingLegalMoves |= 1L << (myKingSquare - 2);
+            }
+        }
+        long occupancyWithoutKing = occupancy & ~(1L << myKingSquare);
+        while (kingLegalMoves != 0) {
+            int toSquare = Long.numberOfTrailingZeros(kingLegalMoves);
+            if (isSquareAttacked(toSquare, occupancyWithoutKing)) {
+                kingLegalMoves &= kingLegalMoves - 1;
+                continue;
+            }
+            int diff = toSquare - myKingSquare;
+            moves[legalMovesAmount++] = encodeMove(myKingSquare, toSquare, WK | whiteTurn, 0, 0, diff == 2 ? 2 : (diff == -2 ? 1 : 0), castlingRights, 0,0);
+            kingLegalMoves &= kingLegalMoves - 1;
+        }
+
+        long rooks = pieces[WR | whiteTurn] & notDoubleCheckMask;
+        while (rooks != 0) {
+            int fromSquare = Long.numberOfTrailingZeros(rooks);
+            long legalMoves = RookMoves.getPossibleMoves(fromSquare, occupancy) & ~occupancy;
+            legalMoves &= ~rookCheckMask;
+            rooks = getLegalMoves(moves, checked, pinned, rooks, fromSquare, legalMoves, WR, rookCheckMask);
+        }
+        return legalMovesAmount;
+    }
 
     public int[] generateMoves(int[] moves) {
+        int tacticalCount  = generateTacticalMoves(moves);
+        int quietsCount = generateQuietChecks(moves, tacticalCount);
+        generateQuietMoves(moves, quietsCount);
+        return moves;
+    }
+
+    public int[] generateMoves1(int[] moves) {
         legalMovesAmount = 0;
         myPieces = pieces[WP | whiteTurn] | pieces[WN | whiteTurn] | pieces[WB | whiteTurn] |
                 pieces[WR | whiteTurn] | pieces[WQ | whiteTurn] | pieces[WK | whiteTurn];
@@ -315,7 +623,7 @@ public class Position {
         return scoreMove(move);
     }
 
-    private int scoreMove(int move) {
+    public int scoreMove(int move) {
         int promotion = (move >> 20) & 0xF;
         if (promotion != 0) {
             return 90000 + Evaluation.PIECE_VALUES_MG[promotion];
@@ -348,14 +656,12 @@ public class Position {
         if (captured != NONE || movingPiece == (WP | whiteTurn)) {
             halfMoveClock = 0;
         }
-        // --- 1. הכאות ---
         if (enPassant == 1) {
             int pawnSquare = (24 + whiteTurn) | (to & 7);
             pieces[captured] &= ~(1L << pawnSquare);
             board[pawnSquare] = NONE;
             zobristKey = ZobristKeys.updateRemovePiece(zobristKey, captured, pawnSquare);
 
-            // הסרת הכלב שנאכל ב-En Passant
             mgScore -= Evaluation.PIECE_PST_MG[captured][pawnSquare];
             egScore -= Evaluation.PIECE_PST_EG[captured][pawnSquare];
             gamePhase -= Evaluation.PHASE_WEIGHTS[captured];
@@ -363,7 +669,6 @@ public class Position {
             pieces[captured] &= ~toMask;
             zobristKey = ZobristKeys.updateRemovePiece(zobristKey, captured, to);
 
-            // הסרת הכלי שנאכל בהכאה רגילה
             mgScore -= Evaluation.PIECE_PST_MG[captured][to];
             egScore -= Evaluation.PIECE_PST_EG[captured][to];
             gamePhase -= Evaluation.PHASE_WEIGHTS[captured];
@@ -375,7 +680,6 @@ public class Position {
             board[from] = NONE;
             board[to] = movingPiece;
             zobristKey = ZobristKeys.updateMovePiece(zobristKey, movingPiece, from, to);
-            // עדכון הזזת הכלי מ-from ל-to בשורת חיסור/חיבור אחת
             mgScore += Evaluation.PIECE_PST_MG[movingPiece][to] - Evaluation.PIECE_PST_MG[movingPiece][from];
             egScore += Evaluation.PIECE_PST_EG[movingPiece][to] - Evaluation.PIECE_PST_EG[movingPiece][from];
         } else {
@@ -385,32 +689,34 @@ public class Position {
             board[to] = promotion;
             zobristKey = ZobristKeys.updatePromotionPiece(zobristKey, movingPiece, promotion, from, to);
 
-            // הסרת הרגלי והוספת הכלי המוגדל
             mgScore += Evaluation.PIECE_PST_MG[promotion][to] - Evaluation.PIECE_PST_MG[movingPiece][from];
             egScore += Evaluation.PIECE_PST_EG[promotion][to] - Evaluation.PIECE_PST_EG[movingPiece][from];
             gamePhase += Evaluation.PHASE_WEIGHTS[promotion] - Evaluation.PHASE_WEIGHTS[movingPiece];
         }
 
-        // --- 3. En Passant Tracker ---
         long leftNeighbor = (toMask >>> 1) & 0x7F7F7F7F7F7F7F7FL;
         long rightNeighbor = (toMask << 1) & 0xFEFEFEFEFEFEFEFEL;
         long adjacentMask = leftNeighbor | rightNeighbor;
         int moveDistance = to - from;
+
+        int oldEpFile = (currentEpSquare == 0) ? -1 : (currentEpSquare % 8);
+        int newEpFile = -1;
+        int newEpSquare = 0;
+
         if (movingPiece == (WP | whiteTurn) &&
                 (moveDistance == 16 || moveDistance == -16) &&
                 (adjacentMask & pieces[BP ^ whiteTurn]) != 0) {
-            int newEnPassant = from + (moveDistance >> 1);
-            if (currentEpSquare == 0) {
-                zobristKey = ZobristKeys.updateEnPassant(zobristKey, -1, newEnPassant % 8);
-            }
-            currentEpSquare = newEnPassant;
-            epSquareHistory[ply] = currentEpSquare;
-        } else if (currentEpSquare != 0) {
-            zobristKey = ZobristKeys.updateEnPassant(zobristKey, currentEpSquare % 8, -1);
-            currentEpSquare = 0;
+            newEpSquare = from + (moveDistance >> 1);
+            newEpFile = newEpSquare % 8;
         }
 
-        // --- 4. הצרחה ---
+        if (oldEpFile != newEpFile) {
+            zobristKey = ZobristKeys.updateEnPassant(zobristKey, oldEpFile, newEpFile);
+        }
+
+        currentEpSquare = newEpSquare;
+        epSquareHistory[ply] = currentEpSquare;
+
         if (castling != 0) {
             int rookPiece = WR | whiteTurn;
             int rookTo = (from + to) >> 1;
@@ -421,7 +727,6 @@ public class Position {
             board[rookTo] = rookPiece;
             zobristKey = ZobristKeys.updateMovePiece(zobristKey, rookPiece, rookFrom, rookTo);
 
-            // עדכון הזזת הצריח בהצרחה
             mgScore += Evaluation.PIECE_PST_MG[rookPiece][rookTo] - Evaluation.PIECE_PST_MG[rookPiece][rookFrom];
             egScore += Evaluation.PIECE_PST_EG[rookPiece][rookTo] - Evaluation.PIECE_PST_EG[rookPiece][rookFrom];
         }
@@ -451,46 +756,33 @@ public class Position {
         int enPassant = (move >> 30) & 0x1;
         long fromMask = 1L << from;
         long toMask = 1L << to;
-        // --- 1. ביטול תנועה / הכתרה ---
         if (promotion == 0) {
             pieces[movingPiece] = (pieces[movingPiece] & ~toMask) | fromMask;
-
-            // החזרת הכלי מ-to ל-from
             mgScore += Evaluation.PIECE_PST_MG[movingPiece][from] - Evaluation.PIECE_PST_MG[movingPiece][to];
             egScore += Evaluation.PIECE_PST_EG[movingPiece][from] - Evaluation.PIECE_PST_EG[movingPiece][to];
         } else {
             pieces[promotion] &= ~toMask;
             pieces[movingPiece] |= fromMask;
-
-            // ביטול הכתרה: החזרת הרגלי והסרת הכלי המוגדל
             mgScore += Evaluation.PIECE_PST_MG[movingPiece][from] - Evaluation.PIECE_PST_MG[promotion][to];
             egScore += Evaluation.PIECE_PST_EG[movingPiece][from] - Evaluation.PIECE_PST_EG[promotion][to];
             gamePhase += Evaluation.PHASE_WEIGHTS[movingPiece] - Evaluation.PHASE_WEIGHTS[promotion];
         }
         board[to] = NONE;
         board[from] = movingPiece;
-
-        // --- 2. שחזור כלים שנלכדו ---
         if (enPassant == 1) {
             int pawnSquare = (24 + (whiteTurn ^ 8)) | (to & 7);
             pieces[captured] |= (1L << pawnSquare);
             board[pawnSquare] = captured;
-
-            // החזרת הכלי שנאכל ב-En Passant
             mgScore += Evaluation.PIECE_PST_MG[captured][pawnSquare];
             egScore += Evaluation.PIECE_PST_EG[captured][pawnSquare];
             gamePhase += Evaluation.PHASE_WEIGHTS[captured];
         } else if (captured != NONE) {
             pieces[captured] |= toMask;
             board[to] = captured;
-
-            // החזרת הכלי שנאכל בהכאה רגילה
             mgScore += Evaluation.PIECE_PST_MG[captured][to];
             egScore += Evaluation.PIECE_PST_EG[captured][to];
             gamePhase += Evaluation.PHASE_WEIGHTS[captured];
         }
-
-        // --- 3. ביטול הצרחה ---
         if (castling != 0) {
             int rookPiece = WR | (whiteTurn ^ 8);
             int rookTo = (from + to) >> 1;
@@ -500,12 +792,9 @@ public class Position {
             pieces[rookPiece] |= (1L << rookFrom);
             board[rookTo] = NONE;
             board[rookFrom] = rookPiece;
-
-            // החזרת הצריח למיקומו המקורי
             mgScore += Evaluation.PIECE_PST_MG[rookPiece][rookFrom] - Evaluation.PIECE_PST_MG[rookPiece][rookTo];
             egScore += Evaluation.PIECE_PST_EG[rookPiece][rookFrom] - Evaluation.PIECE_PST_EG[rookPiece][rookTo];
         }
-
         castlingRights = previousCastlingRights;
         whiteTurn ^= 8;
     }
@@ -514,18 +803,31 @@ public class Position {
         int mg = mgScore;
         int eg = egScore;
 
-        long wPawns = pieces[WP];
-        long bPawns = pieces[BP];
+        long wPawns = pieces[WP], bPawns = pieces[BP];
+        long wKnights = pieces[WN], bKnights = pieces[BN];
+        long wBishops = pieces[WB], bBishops = pieces[BB];
+        long wRooks = pieces[WR], bRooks = pieces[BR];
+        long wQueens = pieces[WQ], bQueens = pieces[BQ];
+
+        long wPiecesMask = wPawns | wKnights | wBishops | wRooks | wQueens | pieces[WK];
+        long bPiecesMask = bPawns | bKnights | bBishops | bRooks | bQueens | pieces[BK];
+        long allOccupancy = wPiecesMask | bPiecesMask;
+
+        int wKingSq = Long.numberOfTrailingZeros(pieces[WK]);
+        int bKingSq = Long.numberOfTrailingZeros(pieces[BK]);
+
+        long wKingRing = KingMoves.ATTACKS[wKingSq] | (1L << wKingSq);
+        long bKingRing = KingMoves.ATTACKS[bKingSq] | (1L << bKingSq);
+        int wKingAttackers = 0, wKingAttackWeight = 0;
+        int bKingAttackers = 0, bKingAttackWeight = 0;
 
         long wFileFill = Evaluation.northFill(wPawns) | Evaluation.southFill(wPawns);
         long bFileFill = Evaluation.northFill(bPawns) | Evaluation.southFill(bPawns);
-
         long wAdjacentFills = Evaluation.adjacentFiles(wFileFill);
         long bAdjacentFills = Evaluation.adjacentFiles(bFileFill);
 
         int wIsolatedCount = Long.bitCount(wPawns & ~wAdjacentFills);
         int bIsolatedCount = Long.bitCount(bPawns & ~bAdjacentFills);
-
         int wDoubledCount = Long.bitCount(wPawns & Evaluation.southFill(wPawns << 8));
         int bDoubledCount = Long.bitCount(bPawns & Evaluation.northFill(bPawns >>> 8));
 
@@ -534,108 +836,153 @@ public class Position {
 
         int mgPawn = -(wIsolatedCount - bIsolatedCount) * Evaluation.ISOLATED_PAWN_PENALTY_MG
                 - (wDoubledCount - bDoubledCount) * Evaluation.DOUBLED_PAWN_PENALTY_MG;
-
         int egPawn = -(wIsolatedCount - bIsolatedCount) * Evaluation.ISOLATED_PAWN_PENALTY_EG
                 - (wDoubledCount - bDoubledCount) * Evaluation.DOUBLED_PAWN_PENALTY_EG;
 
-        while (wPassed != 0) {
-            int sq = Long.numberOfTrailingZeros(wPassed);
+        long wPawnAttacks = ((wPawns >>> 7) & ~Evaluation.FILE_MASKS[0]) | ((wPawns >>> 9) & ~Evaluation.FILE_MASKS[7]);
+        long bPawnAttacks = ((bPawns << 9) & ~Evaluation.FILE_MASKS[0]) | ((bPawns << 7) & ~Evaluation.FILE_MASKS[7]);
+
+        long tempWPassed = wPassed;
+        while (tempWPassed != 0) {
+            int sq = Long.numberOfTrailingZeros(tempWPassed);
             mgPawn += Evaluation.WHITE_PASSED_BONUS_MG[sq];
             egPawn += Evaluation.WHITE_PASSED_BONUS_EG[sq];
-            wPassed &= wPassed - 1;
+            if ((Evaluation.adjacentFiles(1L << sq) & wPassed) != 0) { mgPawn += 15; egPawn += 25; }
+            tempWPassed &= tempWPassed - 1;
         }
 
-        while (bPassed != 0) {
-            int sq = Long.numberOfTrailingZeros(bPassed);
+        long tempBPassed = bPassed;
+        while (tempBPassed != 0) {
+            int sq = Long.numberOfTrailingZeros(tempBPassed);
             mgPawn -= Evaluation.BLACK_PASSED_BONUS_MG[sq];
             egPawn -= Evaluation.BLACK_PASSED_BONUS_EG[sq];
-            bPassed &= bPassed - 1;
+            if ((Evaluation.adjacentFiles(1L << sq) & bPassed) != 0) { mgPawn -= 15; egPawn -= 25; }
+            tempBPassed &= tempBPassed - 1;
         }
 
         mg += mgPawn;
         eg += egPawn;
 
-        long wRooks = pieces[WR];
-        while (wRooks != 0) {
-            int sq = Long.numberOfTrailingZeros(wRooks);
-            long fileMask = Evaluation.FILE_MASKS[sq & 7];
-            if ((wPawns & fileMask) == 0) {
-                if ((bPawns & fileMask) == 0) {
-                    mg += Evaluation.ROOK_OPEN_FILE_BONUS_MG;
-                    eg += Evaluation.ROOK_OPEN_FILE_BONUS_EG;
-                } else {
-                    mg += Evaluation.ROOK_SEMI_OPEN_FILE_BONUS_MG;
-                    eg += Evaluation.ROOK_SEMI_OPEN_FILE_BONUS_EG;
-                }
-            }
-            wRooks &= wRooks - 1;
-        }
-
-        long bRooks = pieces[BR];
-        while (bRooks != 0) {
-            int sq = Long.numberOfTrailingZeros(bRooks);
-            long fileMask = Evaluation.FILE_MASKS[sq & 7];
-            if ((bPawns & fileMask) == 0) {
-                if ((wPawns & fileMask) == 0) {
-                    mg -= Evaluation.ROOK_OPEN_FILE_BONUS_MG;
-                    eg -= Evaluation.ROOK_OPEN_FILE_BONUS_EG;
-                } else {
-                    mg -= Evaluation.ROOK_SEMI_OPEN_FILE_BONUS_MG;
-                    eg -= Evaluation.ROOK_SEMI_OPEN_FILE_BONUS_EG;
-                }
-            }
-            bRooks &= bRooks - 1;
-        }
-
-        long wPiecesMask = pieces[WP] | pieces[WN] | pieces[WB] | pieces[WR] | pieces[WQ] | pieces[WK];
-        long bPiecesMask = pieces[BP] | pieces[BN] | pieces[BB] | pieces[BR] | pieces[BQ] | pieces[BK];
-        long allOccupancy = wPiecesMask | bPiecesMask;
-
-        if (Long.bitCount(pieces[WB]) >= 2) {
-            mg += Evaluation.BISHOP_PAIR_BONUS_MG;
-            eg += Evaluation.BISHOP_PAIR_BONUS_EG;
-        }
-        if (Long.bitCount(pieces[BB]) >= 2) {
-            mg -= Evaluation.BISHOP_PAIR_BONUS_MG;
-            eg -= Evaluation.BISHOP_PAIR_BONUS_EG;
-        }
-
-        long tempKnights = pieces[WN];
+        long tempKnights = wKnights;
         while (tempKnights != 0) {
             int sq = Long.numberOfTrailingZeros(tempKnights);
-            int mobility = Long.bitCount(KnightMoves.ATTACKS[sq] & ~wPiecesMask);
+            long attacks = KnightMoves.ATTACKS[sq];
+            int mobility = Long.bitCount(attacks & ~wPiecesMask);
             mg += mobility * Evaluation.KNIGHT_MOBILITY_MG;
             eg += mobility * Evaluation.KNIGHT_MOBILITY_EG;
+
+            if ((attacks & bKingRing) != 0) { bKingAttackers++; bKingAttackWeight += 2; }
+
+            if (sq >= 16 && sq <= 39 && ((1L << sq) & wPawnAttacks) != 0) {
+                mg += 30; eg += 15;
+            }
             tempKnights &= tempKnights - 1;
         }
-        tempKnights = pieces[BN];
+
+        tempKnights = bKnights;
         while (tempKnights != 0) {
             int sq = Long.numberOfTrailingZeros(tempKnights);
-            int mobility = Long.bitCount(KnightMoves.ATTACKS[sq] & ~bPiecesMask);
+            long attacks = KnightMoves.ATTACKS[sq];
+            int mobility = Long.bitCount(attacks & ~bPiecesMask);
             mg -= mobility * Evaluation.KNIGHT_MOBILITY_MG;
             eg -= mobility * Evaluation.KNIGHT_MOBILITY_EG;
+
+            if ((attacks & wKingRing) != 0) { wKingAttackers++; wKingAttackWeight += 2; }
+
+            if (sq >= 24 && sq <= 47 && ((1L << sq) & bPawnAttacks) != 0) {
+                mg -= 30; eg -= 15;
+            }
             tempKnights &= tempKnights - 1;
         }
 
-        long tempBishops = pieces[WB];
+        if (Long.bitCount(wBishops) >= 2) { mg += Evaluation.BISHOP_PAIR_BONUS_MG; eg += Evaluation.BISHOP_PAIR_BONUS_EG; }
+        if (Long.bitCount(bBishops) >= 2) { mg -= Evaluation.BISHOP_PAIR_BONUS_MG; eg -= Evaluation.BISHOP_PAIR_BONUS_EG; }
+
+        long tempBishops = wBishops;
         while (tempBishops != 0) {
             int sq = Long.numberOfTrailingZeros(tempBishops);
-            int mobility = Long.bitCount(BishopMoves.getPossibleMoves(sq, allOccupancy) & ~wPiecesMask);
+            long attacks = BishopMoves.getPossibleMoves(sq, allOccupancy);
+            int mobility = Long.bitCount(attacks & ~wPiecesMask);
             mg += mobility * Evaluation.BISHOP_MOBILITY_MG;
             eg += mobility * Evaluation.BISHOP_MOBILITY_EG;
-            tempBishops &= tempBishops - 1;
-        }
-        tempBishops = pieces[BB];
-        while (tempBishops != 0) {
-            int sq = Long.numberOfTrailingZeros(tempBishops);
-            int mobility = Long.bitCount(BishopMoves.getPossibleMoves(sq, allOccupancy) & ~bPiecesMask);
-            mg -= mobility * Evaluation.BISHOP_MOBILITY_MG;
-            eg -= mobility * Evaluation.BISHOP_MOBILITY_EG;
+
+            if ((attacks & bKingRing) != 0) { bKingAttackers++; bKingAttackWeight += 2; }
             tempBishops &= tempBishops - 1;
         }
 
-        int wKingSq = Long.numberOfTrailingZeros(pieces[WK]);
-        int bKingSq = Long.numberOfTrailingZeros(pieces[BK]);
+        tempBishops = bBishops;
+        while (tempBishops != 0) {
+            int sq = Long.numberOfTrailingZeros(tempBishops);
+            long attacks = BishopMoves.getPossibleMoves(sq, allOccupancy);
+            int mobility = Long.bitCount(attacks & ~bPiecesMask);
+            mg -= mobility * Evaluation.BISHOP_MOBILITY_MG;
+            eg -= mobility * Evaluation.BISHOP_MOBILITY_EG;
+
+            if ((attacks & wKingRing) != 0) { wKingAttackers++; wKingAttackWeight += 2; }
+            tempBishops &= tempBishops - 1;
+        }
+
+        long tempRooks = wRooks;
+        while (tempRooks != 0) {
+            int sq = Long.numberOfTrailingZeros(tempRooks);
+            long attacks = RookMoves.getPossibleMoves(sq, allOccupancy);
+            int mobility = Long.bitCount(attacks & ~wPiecesMask);
+            mg += mobility * Evaluation.ROOK_MOBILITY_MG;
+            eg += mobility * Evaluation.ROOK_MOBILITY_EG;
+
+            if ((attacks & bKingRing) != 0) { bKingAttackers++; bKingAttackWeight += 3; }
+
+            long fileMask = Evaluation.FILE_MASKS[sq & 7];
+            if ((wPawns & fileMask) == 0) {
+                if ((bPawns & fileMask) == 0) { mg += Evaluation.ROOK_OPEN_FILE_BONUS_MG; eg += Evaluation.ROOK_OPEN_FILE_BONUS_EG; }
+                else { mg += Evaluation.ROOK_SEMI_OPEN_FILE_BONUS_MG; eg += Evaluation.ROOK_SEMI_OPEN_FILE_BONUS_EG; }
+            }
+            if (sq >= 8 && sq <= 15) { mg += 20; eg += 30; }
+            tempRooks &= tempRooks - 1;
+        }
+
+        tempRooks = bRooks;
+        while (tempRooks != 0) {
+            int sq = Long.numberOfTrailingZeros(tempRooks);
+            long attacks = RookMoves.getPossibleMoves(sq, allOccupancy);
+            int mobility = Long.bitCount(attacks & ~bPiecesMask);
+            mg -= mobility * Evaluation.ROOK_MOBILITY_MG;
+            eg -= mobility * Evaluation.ROOK_MOBILITY_EG;
+
+            if ((attacks & wKingRing) != 0) { wKingAttackers++; wKingAttackWeight += 3; }
+
+            long fileMask = Evaluation.FILE_MASKS[sq & 7];
+            if ((bPawns & fileMask) == 0) {
+                if ((wPawns & fileMask) == 0) { mg -= Evaluation.ROOK_OPEN_FILE_BONUS_MG; eg -= Evaluation.ROOK_OPEN_FILE_BONUS_EG; }
+                else { mg -= Evaluation.ROOK_SEMI_OPEN_FILE_BONUS_MG; eg -= Evaluation.ROOK_SEMI_OPEN_FILE_BONUS_EG; }
+            }
+            if (sq >= 48 && sq <= 55) { mg -= 20; eg -= 30; }
+            tempRooks &= tempRooks - 1;
+        }
+
+        long tempQueens = wQueens;
+        while (tempQueens != 0) {
+            int sq = Long.numberOfTrailingZeros(tempQueens);
+            long attacks = BishopMoves.getPossibleMoves(sq, allOccupancy) | RookMoves.getPossibleMoves(sq, allOccupancy);
+            int mobility = Long.bitCount(attacks & ~wPiecesMask);
+            mg += mobility * Evaluation.QUEEN_MOBILITY_MG;
+            eg += mobility * Evaluation.QUEEN_MOBILITY_EG;
+
+            if ((attacks & bKingRing) != 0) { bKingAttackers++; bKingAttackWeight += 5; }
+            tempQueens &= tempQueens - 1;
+        }
+
+        tempQueens = bQueens;
+        while (tempQueens != 0) {
+            int sq = Long.numberOfTrailingZeros(tempQueens);
+            long attacks = BishopMoves.getPossibleMoves(sq, allOccupancy) | RookMoves.getPossibleMoves(sq, allOccupancy);
+            int mobility = Long.bitCount(attacks & ~bPiecesMask);
+            mg -= mobility * Evaluation.QUEEN_MOBILITY_MG;
+            eg -= mobility * Evaluation.QUEEN_MOBILITY_EG;
+
+            if ((attacks & wKingRing) != 0) { wKingAttackers++; wKingAttackWeight += 5; }
+            tempQueens &= tempQueens - 1;
+        }
 
         int wShield = Long.bitCount(Evaluation.KING_SHIELD_MASKS[0][wKingSq] & wPawns);
         int bShield = Long.bitCount(Evaluation.KING_SHIELD_MASKS[1][bKingSq] & bPawns);
@@ -651,6 +998,13 @@ public class Position {
             mg += ((wPawns & bKingFileMask) == 0) ? Evaluation.OPEN_FILE_KING_PENALTY : Evaluation.SEMI_OPEN_FILE_KING_PENALTY;
         }
 
+        if (wKingAttackers >= 2) {
+            mg -= (wKingAttackWeight * wKingAttackWeight);
+        }
+        if (bKingAttackers >= 2) {
+            mg += (bKingAttackWeight * bKingAttackWeight);
+        }
+
         int phase = Math.min(gamePhase, 24);
 
         int wKingRank = wKingSq >> 3, wKingFile = wKingSq & 7;
@@ -658,34 +1012,26 @@ public class Position {
         int distBetweenKings = Math.abs(wKingRank - bKingRank) + Math.abs(wKingFile - bKingFile);
 
         int bDstCenter = Math.max(3 - bKingFile, bKingFile - 4) + Math.max(3 - bKingRank, bKingRank - 4);
-        int wMatingEval = (bDstCenter * 4) + ((14 - distBetweenKings) * 2);
+        int wMatingEval = (bDstCenter * 10) + ((14 - distBetweenKings) * 4);
 
         int wDstCenter = Math.max(3 - wKingFile, wKingFile - 4) + Math.max(3 - wKingRank, wKingRank - 4);
-        int bMatingEval = (wDstCenter * 4) + ((14 - distBetweenKings) * 2);
+        int bMatingEval = (wDstCenter * 10) + ((14 - distBetweenKings) * 4);
 
-        long wNonPawn = pieces[WN] | pieces[WB] | pieces[WR] | pieces[WQ];
-        long bNonPawn = pieces[BN] | pieces[BB] | pieces[BR] | pieces[BQ];
+        long wNonPawn = wKnights | wBishops | wRooks | wQueens;
+        long bNonPawn = bKnights | bBishops | bRooks | bQueens;
 
         if (phase < 6) {
-            if (eg > 200 && bNonPawn == 0) {
-                eg += wMatingEval;
-            } else if (eg < -200 && wNonPawn == 0) {
-                eg -= bMatingEval;
-            }
+            if (eg > 200 && bNonPawn == 0) eg += wMatingEval;
+            else if (eg < -200 && wNonPawn == 0) eg -= bMatingEval;
         }
 
-        if (whiteTurn == 0) {
-            mg += Evaluation.TEMPO_BONUS;
-            eg += Evaluation.TEMPO_BONUS;
-        } else {
-            mg -= Evaluation.TEMPO_BONUS;
-            eg -= Evaluation.TEMPO_BONUS;
-        }
+        if (whiteTurn == 0) { mg += Evaluation.TEMPO_BONUS; eg += Evaluation.TEMPO_BONUS; }
+        else { mg -= Evaluation.TEMPO_BONUS; eg -= Evaluation.TEMPO_BONUS; }
 
         int eval = (mg * phase + eg * (24 - phase)) / 24;
 
-        int sign = whiteTurn >> 3;
-        return (eval ^ -sign) + sign;
+        int sign = whiteTurn == 0 ? 1 : -1;
+        return eval * sign;
     }
 
     public boolean cantMove() {
@@ -698,10 +1044,6 @@ public class Position {
 
     public boolean isInDoubleCheck() {
         return (myKingAttackers & (myKingAttackers - 1)) != 0;
-    }
-
-    public boolean isGivingCheck() {
-        return currentMove < 0;
     }
 
     public boolean isFiftyMoveDraw() {
@@ -722,11 +1064,25 @@ public class Position {
         return false;
     }
 
-    public boolean isSearchRepetition() {
+    public boolean isSearchRepetition(int searchPly) {
+        if (searchPly <= 0){
+            return false;
+        }
         int limit = Math.max(0, ply - halfMoveClock);
+
+        int rootIndex = ply - searchPly;
+
+        int occurrences = 0;
+
         for (int i = ply - 2; i >= limit; i -= 2) {
             if (keyHistory[i] == zobristKey) {
-                return true;
+                occurrences++;
+                if (occurrences >= 2) {
+                    return true;
+                }
+                if (i >= rootIndex) {
+                    return true;
+                }
             }
         }
         return false;
@@ -922,5 +1278,9 @@ public class Position {
 
     public int getEnemyKingSquare() {
         return enemyKingSquare;
+    }
+
+    public int getPly() {
+        return ply;
     }
 }

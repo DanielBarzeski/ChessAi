@@ -28,11 +28,9 @@ public class OpeningBooks {
             return null;
         }
 
-        // סריקת המהלכים ומציאת המהלך בעל המשקל הגבוה ביותר
         BookMove bestMove = book.getFirst();
         for (int i = 1; i < book.size(); i++) {
             BookMove current = book.get(i);
-            // אם weight הוא מתודה (getWeight) או שדה (weight), הנתון מושווה כאן
             if (current.getWeight() > bestMove.getWeight()) {
                 bestMove = current;
             }

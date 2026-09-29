@@ -1,7 +1,5 @@
 package Engine;
 
-import App.GamePanel;
-
 public class MoveGenerator {
     private static TranspositionTable tt = new TranspositionTable(20);
     private static final int[][] MOVES = new int[128][218];
@@ -45,7 +43,7 @@ public class MoveGenerator {
 
         long currentBoardHash = other.getZobristKey();
         BookMove bookMove = OpeningBooks.getBestMove(currentBoardHash);
-        if (bookMove != null) {
+        if (bookMove != null && position.getPly() < 19) {
             for (int i = 0; i < length; i++) {
                 if (moves[i] == bookMove.getMove()) {
                     System.out.println("playing an opening book...");
@@ -60,7 +58,7 @@ public class MoveGenerator {
         }
         int preEvaluationScore = evaluationScore;
         int bestMove = 0;
-
+        long startTime = System.currentTimeMillis();
         for (int depth = 1; depth < 12; depth++) {
             System.out.println("depth: " + depth);
             int currentDepthBestMove = findBestMove(position, depth, currentBoardHash, moves, length);
@@ -68,14 +66,14 @@ public class MoveGenerator {
                 break;
             }
             bestMove = currentDepthBestMove;
-            if (GamePanel.timeCounter > 0) {
+            long elapsedTime = System.currentTimeMillis() - startTime;
+            if (elapsedTime >= 1000) {
                 break;
             }
         }
         System.out.println("previous evaluation score: " + preEvaluationScore);
         System.out.println("evaluation score: " + evaluationScore);
         operating = false;
-        GamePanel.timeCounter = 0;
         return bestMove;
     }
 
@@ -141,7 +139,7 @@ public class MoveGenerator {
     }
 
     private static int negamax(Position position, int depth, int ply, int alpha, int beta) {
-        if (abort || position.isSearchRepetition() || position.isFiftyMoveDraw() || position.hasInsufficientMaterial()) {
+        if (abort || position.isThreefoldRepetition() || position.isSearchRepetition(ply) || position.isFiftyMoveDraw() || position.hasInsufficientMaterial()) {
             return 0;
         }
 
@@ -167,14 +165,24 @@ public class MoveGenerator {
 
         if (depth == 0) return quiescence(position, alpha, beta, ply);
 
+        int tacticalCount;
+        int checksCount = 0;
+        int totalMoves = 0;
+
+        tacticalCount = position.generateTacticalMoves(MOVES[ply]);
+        boolean inCheck = position.isInCheck();
+        if (inCheck) {
+            checksCount = position.generateQuietChecks(MOVES[ply], tacticalCount);
+            totalMoves = position.generateQuietMoves(MOVES[ply], checksCount);
+
+            if (totalMoves == 0) {
+                return -100000 + ply;
+            }
+        }
+
         int bestScore = -1000000;
         int bestMove = 0;
         int[] scores = SCORES[ply];
-
-        // ==========================================
-        // שלב 1: טקטיקות (מרענן את הלוח אוטומטית)
-        // ==========================================
-        int tacticalCount = position.generateTacticalMoves(MOVES[ply]);
 
         for (int i = 0; i < tacticalCount; i++) {
             scores[i] = (MOVES[ply][i] == ttMove) ? 1000000 : position.scoreMove(MOVES[ply][i]);
@@ -211,10 +219,9 @@ public class MoveGenerator {
             }
         }
 
-        // ==========================================
-        // שלב 2: שחים שקטים
-        // ==========================================
-        int checksCount = position.generateQuietChecks(MOVES[ply], tacticalCount);
+        if (!inCheck) {
+            checksCount = position.generateQuietChecks(MOVES[ply], tacticalCount);
+        }
 
         for (int i = tacticalCount; i < checksCount; i++) {
             scores[i] = (MOVES[ply][i] == ttMove) ? 1000000 : position.scoreMove(MOVES[ply][i]);
@@ -251,19 +258,19 @@ public class MoveGenerator {
             }
         }
 
-        // ==========================================
-        // שלב 3: מהלכים שקטים וגיזום (Futility Pruning)
-        // ==========================================
-        int totalMoves = position.generateQuietMoves(MOVES[ply], checksCount);
-
-        int staticEval = position.evaluate();
         boolean futilityPruning = false;
-        int futilityMargin = 150 * depth;
 
-        if (depth <= 2 && !position.isInCheck() && Math.abs(alpha) < 90000) {
-            if (staticEval + futilityMargin <= alpha) {
-                futilityPruning = true;
-                if (bestScore < staticEval) bestScore = staticEval;
+        if (!inCheck) {
+            totalMoves = position.generateQuietMoves(MOVES[ply], checksCount);
+
+            int staticEval = position.evaluate();
+            int futilityMargin = 150 * depth;
+
+            if (depth <= 2 && Math.abs(alpha) < 90000) {
+                if (staticEval + futilityMargin <= alpha) {
+                    futilityPruning = true;
+                    if (bestScore < staticEval) bestScore = staticEval;
+                }
             }
         }
 
@@ -300,9 +307,8 @@ public class MoveGenerator {
             if (alpha >= beta) break;
         }
 
-        if (totalMoves == 0) {
-            if (position.isInCheck()) return -100000 + ply;
-            else return 0;
+        if (!inCheck && totalMoves == 0) {
+            return 0;
         }
 
         if (!abort) {
@@ -315,12 +321,10 @@ public class MoveGenerator {
         if (abort) return 0;
         if (ply > 126) return position.evaluate();
 
-        // 1. קריטי! מייצרים טקטיקות עכשיו כדי לרענן את הלוח עבור ההערכות ובדיקת השח!
         int totalMoves = position.generateTacticalMoves(MOVES[ply]);
 
         boolean inCheck = position.isInCheck();
 
-        // 2. רק עכשיו בטוח לבדוק הערכה (כי הלוח מעודכן)
         if (!inCheck) {
             int standPat = position.evaluate();
             if (standPat >= beta) return beta;
@@ -328,14 +332,13 @@ public class MoveGenerator {
             if (standPat + 900 < alpha) return alpha;
         }
 
-        // 3. אם יש שח, חייבים לייצר את שאר המהלכים כדי לברוח מהשח (Evasions)
         if (inCheck) {
             totalMoves = position.generateQuietChecks(MOVES[ply], totalMoves);
             totalMoves = position.generateQuietMoves(MOVES[ply], totalMoves);
         }
 
         if (inCheck && totalMoves == 0) {
-            return -100000 + ply; // מט
+            return -100000 + ply;
         }
 
         int[] scores = SCORES[ply];
