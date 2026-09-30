@@ -1,7 +1,7 @@
 package Data;
 
 public class Game {
-    public static final int CELL_SIZE = 50;
+    public static final int CELL_SIZE = 60;
 
     private static int timeCounter;
 
