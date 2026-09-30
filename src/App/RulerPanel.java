@@ -70,7 +70,7 @@ public class RulerPanel extends JPanel {
             labelText = "0.00";
         }
         else {
-            double pawns = cp / 100.0;
+            double pawns = Math.abs(cp / 100.0);
             whiteAdvantage = cp >= 0;
 
             double fillPercentage = 0.5 + (Math.atan(cp / 400.0) / Math.PI);
